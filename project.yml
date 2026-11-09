@@ -3,6 +3,12 @@ options:
   bundleIdPrefix: com.personal
   deploymentTarget:
     iOS: "16.0"
+settings:
+  base:
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ""
+    AD_HOC_CODE_SIGNING_ALLOWED: YES
 targets:
   DSL224Manager:
     type: application
@@ -10,14 +16,26 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - path: App
+      - path: Shared
     info:
       path: App/Info.plist
-      properties:
-        CFBundleDisplayName: "إدارة الراوتر"
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "1"
-        UILaunchScreen: {}
-        UIUserInterfaceStyle: "Dark"
-        NSLocalNetworkUsageDescription: "مطلوب للاتصال براوتر D-Link على الشبكة المحلية."
-        NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.DSL224Manager
+    dependencies:
+      - target: DSL224WidgetExtension
+        embed: true
+        codeSign: false
+
+  DSL224WidgetExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Widget
+      - path: Shared
+    info:
+      path: Widget/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.DSL224Manager.Widget

@@ -1,152 +1,334 @@
 import SwiftUI
 
+enum DeviceFilterMode: String, CaseIterable, Identifiable {
+    case all = "الكل"
+    case online = "متصل"
+    case throttled = "محدد السرعة"
+    case blocked = "محظور"
+
+    var id: String { rawValue }
+}
+
 struct ContentView: View {
-    @StateObject private var service = RouterService()
-    @State private var showSettings = false
-    @State private var deviceToRename: NetworkDevice?
-    @State private var newNameInput = ""
+    @ObservedObject var service: RouterService
+    @State private var selectedTab: Int = 0
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            DashboardTabView(service: service)
+                .tabItem {
+                    Label("الشبكة", systemImage: "wifi.router")
+                }
+                .tag(0)
+
+            RoutersListTabView(service: service)
+                .tabItem {
+                    Label("الراوترات", systemImage: "server.rack")
+                }
+                .tag(1)
+
+            StatsAndLogsTabView(service: service)
+                .tabItem {
+                    Label("الإحصائيات", systemImage: "chart.bar.doc.horizontal")
+                }
+                .tag(2)
+
+            FullSettingsTabView(service: service)
+                .tabItem {
+                    Label("الإعدادات", systemImage: "gearshape.fill")
+                }
+                .tag(3)
+        }
+        .tint(.blue)
+        .environment(\.layoutDirection, .rightToLeft)
+        .task {
+            if !service.isConnected {
+                _ = await service.loginAndRefresh()
+            }
+        }
+    }
+}
+
+// MARK: - 1. تبويب الشبكة الرئيسي (Dashboard)
+struct DashboardTabView: View {
+    @ObservedObject var service: RouterService
+    @State private var searchText: String = ""
+    @State private var filterMode: DeviceFilterMode = .all
+    @State private var deviceToRename: NetworkDevice? = nil
+    @State private var newNameInput: String = ""
+    @State private var deviceForCustomSpeed: NetworkDevice? = nil
+    @State private var customSpeedInput: String = "768"
+    @State private var showAddManualDevice: Bool = false
+    @State private var showRebootConfirm: Bool = false
+    @State private var showQuickCalibrate: Bool = false
+    @State private var calibrateInputGB: String = ""
+
+    private var filteredDevices: [NetworkDevice] {
+        service.activeRouter.devices.filter { dev in
+            let matchesFilter: Bool
+            switch filterMode {
+            case .all: matchesFilter = true
+            case .online: matchesFilter = dev.isOnline
+            case .throttled: matchesFilter = dev.isThrottled
+            case .blocked: matchesFilter = dev.isBlocked
+            }
+            guard matchesFilter else { return false }
+            if searchText.trimmingCharacters(in: .whitespaces).isEmpty { return true }
+            let q = searchText.lowercased()
+            return dev.displayName.lowercased().contains(q)
+                || dev.ipAddress.lowercased().contains(q)
+                || dev.macAddress.lowercased().contains(q)
+        }
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                if !service.isConnected {
-                    // شاشة تسجيل الدخول المدمجة
-                    VStack(spacing: 16) {
-                        Image(systemName: "wifi.router")
-                            .font(.system(size: 48))
-                            .foregroundColor(.blue)
-
-                        Text("إدارة راوتر D-Link")
-                            .font(.headline)
-                            .foregroundColor(.white)
-
-                        VStack(spacing: 8) {
-                            TextField("عنوان IP الراوتر", text: $service.routerIP)
-                                .textFieldStyle(.roundedBorder)
-                                .multilineTextAlignment(.center)
-
-                            SecureField("كلمة سر الراوتر", text: $service.password)
-                                .textFieldStyle(.roundedBorder)
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: 280)
-
+                ScrollView {
+                    VStack(spacing: 10) {
+                        // شريط حالة الاتصال إن وجد
                         if !service.statusMessage.isEmpty {
-                            Text(service.statusMessage)
-                                .font(.caption)
-                                .foregroundColor(.red)
+                            HStack(spacing: 6) {
+                                Image(systemName: "info.circle.fill")
+                                    .foregroundColor(.orange)
+                                Text(service.statusMessage)
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                                Spacer()
+                            }
+                            .padding(8)
+                            .background(Color(white: 0.12))
+                            .cornerRadius(8)
                         }
 
-                        Button(action: { Task { await service.login() } }) {
-                            if service.isLoading {
-                                ProgressView().tint(.white)
-                                    .frame(maxWidth: 280)
-                                    .padding(.vertical, 10)
-                            } else {
-                                Text("اتصال")
-                                    .fontWeight(.bold)
-                                    .frame(maxWidth: 280)
-                                    .padding(.vertical, 10)
-                                    .background(Color.blue)
+                        // بطاقة الباقة الشاملة
+                        ComprehensiveQuotaCard(
+                            router: service.activeRouter,
+                            onCalibrateTap: {
+                                calibrateInputGB = String(format: "%.1f", service.activeRouter.usedGB)
+                                showQuickCalibrate = true
+                            }
+                        )
+
+                        // شريط البحث والفلترة
+                        VStack(spacing: 8) {
+                            HStack(spacing: 8) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "magnifyingglass")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                    TextField("ابحث باسم الجهاز أو IP أو MAC...", text: $searchText)
+                                        .font(.caption)
+                                        .foregroundColor(.white)
+                                }
+                                .padding(8)
+                                .background(Color(white: 0.11))
+                                .cornerRadius(8)
+
+                                Button(action: { showAddManualDevice = true }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "plus")
+                                        Text("إضافة")
+                                    }
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(Color(white: 0.15))
                                     .foregroundColor(.white)
                                     .cornerRadius(8)
+                                }
+                            }
+
+                            Picker("فلترة", selection: $filterMode) {
+                                ForEach(DeviceFilterMode.allCases) { mode in
+                                    Text(mode.rawValue).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        // قائمة الأجهزة
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("الأجهزة (\(filteredDevices.count))")
+                                    .font(.caption.bold())
+                                    .foregroundColor(.gray)
+                                Spacer()
+                                if service.isLoading {
+                                    ProgressView().scaleEffect(0.75)
+                                }
+                            }
+                            .padding(.horizontal, 4)
+
+                            if filteredDevices.isEmpty {
+                                Text("لا توجد أجهزة مطابقة للفلتر الحالي")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 24)
+                            } else {
+                                ForEach(filteredDevices) { device in
+                                    DeviceControlRow(
+                                        device: device,
+                                        service: service,
+                                        onRename: {
+                                            deviceToRename = device
+                                            newNameInput = device.displayName
+                                        },
+                                        onCustomSpeed: {
+                                            deviceForCustomSpeed = device
+                                            customSpeedInput = "\(max(256, device.currentSpeedKbps))"
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
-                    .padding()
-                } else {
-                    // الشاشة الرئيسية لإدارة الشبكة
-                    ScrollView {
-                        VStack(spacing: 12) {
-                            // بطاقة استهلاك الباقة
-                            QuotaCard(service: service)
-
-                            // قائمة الأجهزة المتصلة
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text("الأجهزة المتصلة (\(service.devices.count))")
-                                        .font(.caption.bold())
-                                        .foregroundColor(.gray)
-                                    Spacer()
-                                    Button(action: { Task { await service.refreshData() } }) {
-                                        Image(systemName: "arrow.clockwise")
-                                            .font(.caption)
-                                            .foregroundColor(.blue)
-                                    }
-                                }
-                                .padding(.horizontal, 4)
-
-                                ForEach(service.devices) { device in
-                                    DeviceRow(device: device, service: service) {
-                                        deviceToRename = device
-                                        newNameInput = device.displayName
-                                    }
-                                }
-                            }
-                        }
-                        .padding(12)
-                    }
+                    .padding(12)
+                }
+                .refreshable {
+                    await service.loginAndRefresh()
                 }
             }
-            .navigationTitle(service.isConnected ? "شبكتي" : "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if service.isConnected {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button(action: { showSettings = true }) {
-                            Image(systemName: "gearshape")
-                                .foregroundColor(.white)
+                // قائمة تبديل الراوتر السريعة
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu {
+                        ForEach(service.routers) { router in
+                            Button(action: { service.selectRouter(router.id) }) {
+                                HStack {
+                                    Text(router.name)
+                                    if router.id == service.activeRouter.id {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
                         }
-                    }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: { Task { await service.reboot() } }) {
-                            Image(systemName: "arrow.clockwise.circle")
-                                .foregroundColor(.red)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "wifi.router.fill")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                            Text(service.activeRouter.name)
+                                .font(.subheadline.bold())
+                                .foregroundColor(.white)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.gray)
                         }
                     }
                 }
+
+                // أزرار التحديث وإعادة تشغيل الراوتر
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button(action: { Task { await service.loginAndRefresh() } }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.subheadline)
+                            .foregroundColor(.blue)
+                    }
+                    Button(action: { showRebootConfirm = true }) {
+                        Image(systemName: "power")
+                            .font(.subheadline)
+                            .foregroundColor(.red)
+                    }
+                }
             }
-            // نافذة الإعدادات
-            .sheet(isPresented: $showSettings) {
-                SettingsView(service: service)
-            }
-            // نافذة تسمية الأجهزة
+            // نافذة تسمية الجهاز
             .alert("تسمية الجهاز", isPresented: Binding(
                 get: { deviceToRename != nil },
                 set: { if !$0 { deviceToRename = nil } }
             )) {
-                TextField("اسم الجهاز", text: $newNameInput)
+                TextField("اسم الجهاز (مثال: شاشة الصالة)", text: $newNameInput)
                 Button("حفظ") {
                     if let dev = deviceToRename {
-                        service.renameDevice(device: dev, newName: newNameInput)
+                        service.renameDevice(dev, newName: newNameInput)
                     }
                 }
                 Button("إلغاء", role: .cancel) {}
             }
+            // نافذة تحديد سرعة مخصصة بالكيلوبت
+            .alert("تحديد سرعة مخصصة (Kbps)", isPresented: Binding(
+                get: { deviceForCustomSpeed != nil },
+                set: { if !$0 { deviceForCustomSpeed = nil } }
+            )) {
+                TextField("مثال: 768 أو 1500", text: $customSpeedInput)
+                    .keyboardType(.numberPad)
+                Button("تطبيق") {
+                    if let dev = deviceForCustomSpeed, let speed = Int(customSpeedInput), speed > 0 {
+                        Task { await service.setThrottle(dev, speedKbps: speed) }
+                    }
+                }
+                Button("إلغاء", role: .cancel) {}
+            }
+            // نافذة المعايرة السريعة للاستهلاك (إذا شغل التطبيق بنصف الشهر)
+            .alert("ضبط الاستهلاك الحالي (GB)", isPresented: $showQuickCalibrate) {
+                TextField("الجيجابايت المستهلكة حالياً", text: $calibrateInputGB)
+                    .keyboardType(.decimalPad)
+                Button("حفظ") {
+                    if let val = Double(calibrateInputGB.replacingOccurrences(of: ",", with: ".")) {
+                        var r = service.activeRouter
+                        r.manualOffsetGB = max(0, val - r.accumulatedGB)
+                        service.activeRouter = r
+                    }
+                }
+                Button("إلغاء", role: .cancel) {}
+            } message: {
+                Text("أدخل إجمالي ما استهلكته من الباقة حتى اللحظة ليتم البناء عليه تلقائياً.")
+            }
+            // تأكيد إعادة تشغيل الراوتر
+            .confirmationDialog(
+                "هل تريد إعادة تشغيل (\(service.activeRouter.name)) الآن؟",
+                isPresented: $showRebootConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("إعادة تشغيل الراوتر", role: .destructive) {
+                    Task { await service.rebootActiveRouter() }
+                }
+                Button("إلغاء", role: .cancel) {}
+            }
+            // نافذة إضافة جهاز يدوياً
+            .sheet(isPresented: $showAddManualDevice) {
+                AddManualDeviceSheet(service: service)
+            }
         }
-        .environment(\.layoutDirection, .rightToLeft)
     }
 }
 
-// بطاقة استهلاك الباقة الشهرية
-struct QuotaCard: View {
-    @ObservedObject var service: RouterService
+// MARK: - بطاقة الباقة الشاملة
+struct ComprehensiveQuotaCard: View {
+    let router: RouterProfile
+    var onCalibrateTap: () -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             HStack {
-                Text("استهلاك الباقة (تجديد يوم \(service.quota.renewalDay))")
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("استهلاك الباقة الشهرية")
+                        .font(.caption.bold())
+                        .foregroundColor(.white)
+                    Text("يتجدد يوم \(router.renewalDay) • متبقي \(router.daysUntilRenewal) يوم")
+                        .font(.system(size: 11))
+                        .foregroundColor(.gray)
+                }
                 Spacer()
-                Text("باقة \(Int(service.quota.totalPlanGB)) جيجا")
-                    .font(.caption.bold())
-                    .foregroundColor(.white)
+                Button(action: onCalibrateTap) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "slider.horizontal.3")
+                        Text("ضبط الاستهلاك")
+                    }
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(white: 0.18))
+                    .foregroundColor(.blue)
+                    .cornerRadius(6)
+                }
             }
 
-            // شريط التقدم
+            // شريط النسبة
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 4)
@@ -154,90 +336,187 @@ struct QuotaCard: View {
                         .frame(height: 8)
                     RoundedRectangle(cornerRadius: 4)
                         .fill(progressColor)
-                        .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(service.usedPercentage / 100.0))), height: 8)
+                        .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(router.usedPercentage / 100.0))), height: 8)
                 }
             }
             .frame(height: 8)
 
-            HStack {
-                Text("مستهلك: **\(String(format: "%.1f", service.usedGB)) GB** (\(Int(service.usedPercentage))%)")
-                    .font(.caption2)
-                    .foregroundColor(.white)
-                Spacer()
-                Text("متبقي: **\(String(format: "%.1f", service.remainingGB)) GB**")
-                    .font(.caption2)
-                    .foregroundColor(.gray)
+            // الأرقام الثلاثية
+            HStack(spacing: 8) {
+                QuotaStatBox(
+                    title: "المستهلك",
+                    value: "\(String(format: "%.1f", router.usedGB)) GB",
+                    sub: "\(Int(router.usedPercentage))% من \(Int(router.totalPlanGB))G",
+                    color: .white
+                )
+                QuotaStatBox(
+                    title: "المتبقي",
+                    value: "\(String(format: "%.1f", router.remainingGB)) GB",
+                    sub: "متاح للاستخدام",
+                    color: progressColor
+                )
+                QuotaStatBox(
+                    title: "المعدل الآمن يومياً",
+                    value: "\(String(format: "%.1f", router.recommendedDailyGB)) GB",
+                    sub: "لإكمال الشهر",
+                    color: .green
+                )
             }
         }
         .padding(12)
-        .background(Color(white: 0.12))
+        .background(Color(white: 0.1))
         .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color(white: 0.16), lineWidth: 1)
+        )
     }
 
     private var progressColor: Color {
-        if service.usedPercentage >= 85 { return .red }
-        if service.usedPercentage >= 70 { return .orange }
+        if router.usedPercentage >= 85 { return .red }
+        if router.usedPercentage >= 70 { return .orange }
         return .blue
     }
 }
 
-// بطاقة كل جهاز متصل
-struct DeviceRow: View {
+struct QuotaStatBox: View {
+    let title: String
+    let value: String
+    let sub: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 10))
+                .foregroundColor(.gray)
+            Text(value)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundColor(color)
+                .lineLimit(1)
+            Text(sub)
+                .font(.system(size: 9))
+                .foregroundColor(.gray)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(Color(white: 0.14))
+        .cornerRadius(8)
+    }
+}
+
+// MARK: - بطاقة التحكم في الجهاز
+struct DeviceControlRow: View {
     let device: NetworkDevice
     @ObservedObject var service: RouterService
     var onRename: () -> Void
+    var onCustomSpeed: () -> Void
+
+    let speedPresets: [(label: String, kbps: Int)] = [
+        ("256K", 256),
+        ("512K", 512),
+        ("1M", 1024),
+        ("2M", 2048)
+    ]
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
+                        Circle()
+                            .fill(device.isBlocked ? Color.red : (device.isOnline ? Color.green : Color.gray))
+                            .frame(width: 7, height: 7)
+
                         Text(device.displayName)
                             .font(.subheadline.bold())
                             .foregroundColor(.white)
+
                         Button(action: onRename) {
                             Image(systemName: "pencil")
                                 .font(.caption2)
                                 .foregroundColor(.blue)
                         }
+
+                        Button(action: { service.toggleTrustDevice(device) }) {
+                            Image(systemName: device.isTrusted ? "checkmark.shield.fill" : "shield")
+                                .font(.caption2)
+                                .foregroundColor(device.isTrusted ? .green : .gray)
+                        }
                     }
-                    Text("\(device.ipAddress) • \(device.macAddress)")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
+
+                    HStack(spacing: 6) {
+                        Text(device.ipAddress)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.gray)
+                        Text("•")
+                            .foregroundColor(.gray)
+                        Text(device.macAddress)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.gray)
+                    }
                 }
+
                 Spacer()
 
-                Button(action: { Task { await service.toggleBlock(device: device) } }) {
-                    Text(device.isBlocked ? "إلغاء الفصل" : "فصل")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(device.isBlocked ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
-                        .foregroundColor(device.isBlocked ? .green : .red)
-                        .cornerRadius(6)
+                // زر الفصل / إلغاء الفصل
+                Button(action: { Task { await service.toggleBlock(device) } }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: device.isBlocked ? "lock.open.fill" : "xmark.shield.fill")
+                        Text(device.isBlocked ? "فك الحظر" : "فصل")
+                    }
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(device.isBlocked ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
+                    .foregroundColor(device.isBlocked ? .green : .red)
+                    .cornerRadius(6)
                 }
             }
 
-            // أزرار التحكم بالسرعة
-            HStack(spacing: 6) {
-                SpeedButton(title: "512 ك.ب", isSelected: device.currentSpeedKbps == 512) {
-                    Task { await service.setThrottle(device: device, speedKbps: 512) }
+            // صف أزرار تحديد السرعة
+            HStack(spacing: 5) {
+                ForEach(speedPresets, id: \.kbps) { preset in
+                    SpeedOptionButton(
+                        title: preset.label,
+                        isSelected: device.isThrottled && device.currentSpeedKbps == preset.kbps
+                    ) {
+                        Task { await service.setThrottle(device, speedKbps: preset.kbps) }
+                    }
                 }
-                SpeedButton(title: "1 ميجا", isSelected: device.currentSpeedKbps == 1024) {
-                    Task { await service.setThrottle(device: device, speedKbps: 1024) }
+
+                SpeedOptionButton(
+                    title: isCustomSpeed ? "\(device.currentSpeedKbps)K" : "مخصص",
+                    isSelected: isCustomSpeed
+                ) {
+                    onCustomSpeed()
                 }
-                SpeedButton(title: "كاملة", isSelected: !device.isThrottled) {
-                    Task { await service.setThrottle(device: device, speedKbps: 0) }
+
+                SpeedOptionButton(
+                    title: "كاملة",
+                    isSelected: !device.isThrottled || device.currentSpeedKbps == 0
+                ) {
+                    Task { await service.setThrottle(device, speedKbps: 0) }
                 }
             }
         }
         .padding(10)
         .background(Color(white: 0.1))
         .cornerRadius(10)
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(device.isBlocked ? Color.red.opacity(0.4) : Color(white: 0.16), lineWidth: 1)
+        )
+    }
+
+    private var isCustomSpeed: Bool {
+        guard device.isThrottled && device.currentSpeedKbps > 0 else { return false }
+        return ![256, 512, 1024, 2048].contains(device.currentSpeedKbps)
     }
 }
 
-struct SpeedButton: View {
+struct SpeedOptionButton: View {
     let title: String
     let isSelected: Bool
     let action: () -> Void
@@ -245,67 +524,51 @@ struct SpeedButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.caption2.bold())
+                .font(.system(size: 11, weight: .semibold))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
-                .background(isSelected ? Color.blue : Color(white: 0.18))
+                .background(isSelected ? Color.blue : Color(white: 0.17))
                 .foregroundColor(.white)
                 .cornerRadius(6)
         }
     }
 }
 
-// نافذة الإعدادات لتحديد الباقة وميعاد التجديد
-struct SettingsView: View {
+// MARK: - نافذة إضافة جهاز يدوياً
+struct AddManualDeviceSheet: View {
     @ObservedObject var service: RouterService
     @Environment(\.dismiss) var dismiss
+    @State private var name: String = ""
+    @State private var ip: String = "192.168.1."
+    @State private var mac: String = ""
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("بيانات الباقة الشهرية") {
-                    HStack {
-                        Text("سعة الباقة (جيجابايت)")
-                        Spacer()
-                        TextField("140", value: $service.quota.totalPlanGB, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                    }
-
-                    HStack {
-                        Text("يوم التجديد شهرياً")
-                        Spacer()
-                        Picker("", selection: $service.quota.renewalDay) {
-                            ForEach(1...31, id: \.self) { day in
-                                Text("\(day)").tag(day)
-                            }
-                        }
-                    }
-
-                    HStack {
-                        Text("تعديل الاستهلاك الحالي (GB)")
-                        Spacer()
-                        TextField("0", value: $service.quota.manualOffsetGB, format: .number)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                    }
-                }
-
-                Section("إعدادات الراوتر") {
-                    HStack {
-                        Text("عنوان IP الراوتر")
-                        Spacer()
-                        TextField("192.168.1.1", text: $service.routerIP)
-                            .multilineTextAlignment(.trailing)
-                    }
+                Section("بيانات الجهاز") {
+                    TextField("اسم الجهاز (مثال: بلايستيشن)", text: $name)
+                    TextField("عنوان IP (مثال: 192.168.1.25)", text: $ip)
+                        .keyboardType(.numbersAndPunctuation)
+                    TextField("عنوان MAC (مثال: AA:BB:CC:11:22:33)", text: $mac)
+                        .textInputAutocapitalization(.characters)
                 }
             }
-            .navigationTitle("الإعدادات")
+            .navigationTitle("إضافة جهاز يدوياً")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                Button("حفظ") {
-                    service.saveSettings()
-                    dismiss()
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("إلغاء") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("إضافة") {
+                        service.addManualDevice(
+                            name: name.isEmpty ? "جهاز مضاف" : name,
+                            ip: ip,
+                            mac: mac
+                        )
+                        dismiss()
+                    }
+                    .disabled(mac.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
