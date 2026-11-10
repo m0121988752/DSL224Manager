@@ -76,14 +76,23 @@ struct RouterCardView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Image(systemName: "wifi.router.fill")
-                            .foregroundColor(isActive ? .blue : .gray)
+                            .foregroundColor(router.firmware == .huaweiB311 ? .orange : (isActive ? .blue : .gray))
                         Text(router.name)
                             .font(.subheadline.bold())
                             .foregroundColor(.white)
+                        if let carrier = router.carrierName {
+                            Text(carrier)
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.25))
+                                .foregroundColor(.orange)
+                                .cornerRadius(4)
+                        }
                         if isActive {
                             Text("النشط")
-                                .font(.system(size: 10, weight: .bold))
-                                .padding(.horizontal, 6)
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
                                 .background(Color.blue.opacity(0.25))
                                 .foregroundColor(.blue)
@@ -150,9 +159,15 @@ struct RouterCardView: View {
                         .font(.system(size: 10))
                         .foregroundColor(.gray)
                     Spacer()
-                    Text("\(router.onlineDevicesCount) متصل • \(router.throttledDevicesCount) محدد")
-                        .font(.system(size: 10))
-                        .foregroundColor(.gray)
+                    if let speed = router.liveSpeedFormatted {
+                        Text(speed)
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundColor(.cyan)
+                    } else {
+                        Text("\(router.onlineDevicesCount) متصل • \(router.throttledDevicesCount) محدد")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray)
+                    }
                 }
             }
         }
@@ -175,15 +190,37 @@ struct RouterEditorSheet: View {
     @State private var ip: String = "192.168.1.1"
     @State private var username: String = "admin"
     @State private var password: String = ""
-    @State private var firmware: FirmwareProtocol = .me110Boa
+    @State private var firmware: FirmwareProtocol = .huaweiB311
     @State private var totalPlanGB: Double = 140.0
     @State private var renewalDay: Int = 1
 
     var body: some View {
         NavigationStack {
             Form {
+                if existingRouter == nil {
+                    Section("قوالب سريعة جاهزة") {
+                        HStack(spacing: 8) {
+                            Button("Huawei B311 (4G)") {
+                                name = "راوتر 4G (B311)"
+                                ip = "192.168.1.1"
+                                username = "admin"
+                                firmware = .huaweiB311
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button("D-Link (DSL-224)") {
+                                name = "راوتر D-Link"
+                                ip = "192.168.2.1"
+                                username = "admin"
+                                firmware = .me110Boa
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+
                 Section("معلومات الراوتر") {
-                    TextField("اسم الراوتر (مثال: راوتر المنزل)", text: $name)
+                    TextField("اسم الراوتر (مثال: راوتر 4G الصالة)", text: $name)
                     TextField("عنوان IP (مثال: 192.168.1.1)", text: $ip)
                         .keyboardType(.numbersAndPunctuation)
                     TextField("اسم المستخدم", text: $username)
@@ -220,7 +257,7 @@ struct RouterEditorSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("حفظ") {
                         if var edit = existingRouter {
-                            edit.name = name.isEmpty ? "راوتر D-Link" : name
+                            edit.name = name.isEmpty ? "راوتر" : name
                             edit.routerIP = ip
                             edit.username = username
                             edit.password = password
@@ -230,7 +267,7 @@ struct RouterEditorSheet: View {
                             service.updateRouter(edit)
                         } else {
                             var newProfile = RouterProfile(
-                                name: name.isEmpty ? "راوتر إضافي" : name,
+                                name: name.isEmpty ? "راوتر جديد" : name,
                                 routerIP: ip,
                                 username: username,
                                 password: password,
@@ -274,11 +311,21 @@ struct StatsAndLogsTabView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         // ملخص الاستهلاك
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("تحليل باقة (\(service.activeRouter.name))")
-                                .font(.caption.bold())
-                                .foregroundColor(.gray)
+                            HStack {
+                                Text("تحليل باقة (\(service.activeRouter.name))")
+                                    .font(.caption.bold())
+                                    .foregroundColor(.gray)
+                                Spacer()
+                                if let carrier = service.activeRouter.carrierName {
+                                    Text(carrier)
+                                        .font(.caption2.bold())
+                                        .foregroundColor(.orange)
+                                }
+                            }
 
                             VStack(spacing: 8) {
+                                StatDetailRow(label: "نوع الراوتر والنظام", value: service.activeRouter.firmware.rawValue)
+                                Divider().background(Color(white: 0.2))
                                 StatDetailRow(label: "إجمالي سعة الباقة", value: "\(Int(service.activeRouter.totalPlanGB)) GB")
                                 Divider().background(Color(white: 0.2))
                                 StatDetailRow(label: "المستهلك الفعلي (تراكمي + يدوي)", value: "\(String(format: "%.2f", service.activeRouter.usedGB)) GB")
@@ -288,6 +335,10 @@ struct StatsAndLogsTabView: View {
                                 StatDetailRow(label: "الأيام المتبقية للتجديد", value: "\(service.activeRouter.daysUntilRenewal) يوم")
                                 Divider().background(Color(white: 0.2))
                                 StatDetailRow(label: "الحد اليومي المقترح لعدم انتهاء الباقة", value: "\(String(format: "%.2f", service.activeRouter.recommendedDailyGB)) GB / يوم")
+                                if let speed = service.activeRouter.liveSpeedFormatted {
+                                    Divider().background(Color(white: 0.2))
+                                    StatDetailRow(label: "السرعة اللحظية للاتصال", value: speed)
+                                }
                             }
                             .padding(12)
                             .background(Color(white: 0.1))

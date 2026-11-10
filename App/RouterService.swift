@@ -2,6 +2,7 @@ import Foundation
 import UserNotifications
 import WidgetKit
 import BackgroundTasks
+import CryptoKit
 import Combine
 
 @MainActor
@@ -17,6 +18,7 @@ class RouterService: ObservableObject {
     @Published var logs: [LogEntry] = []
 
     private var sessionCookies: [UUID: String] = [:]
+    private var verificationTokens: [UUID: String] = [:]
     private let session: URLSession
 
     init() {
@@ -68,6 +70,9 @@ class RouterService: ObservableObject {
         saveAllProfiles()
         syncWidgetSnapshot()
         addLog("تمت إضافة راوتر جديد: \(profile.name)")
+        Task {
+            await loginAndRefresh()
+        }
     }
 
     func updateRouter(_ profile: RouterProfile) {
@@ -117,19 +122,30 @@ class RouterService: ObservableObject {
                 self.activeRouterID = decoded[0].id
             }
         } else {
-            // إنشاء راوتر افتراضي جاهز عند أول تشغيل
-            var defaultRouter = RouterProfile(
-                name: "راوتر المنزل (DSL-224)",
-                routerIP: "192.168.1.1",
+            // إضافة راوترين جاهزين كبداية: D-Link DSL-224 و Huawei B311 المتواجد حالياً على الشبكة
+            var dlink = RouterProfile(
+                name: "راوتر D-Link (DSL-224)",
+                routerIP: "192.168.2.1",
                 username: "admin",
                 password: "",
                 firmware: .me110Boa,
                 totalPlanGB: 140.0,
                 renewalDay: 1
             )
-            defaultRouter.devices = Self.sampleDevices()
-            self.routers = [defaultRouter]
-            self.activeRouterID = defaultRouter.id
+            dlink.devices = Self.sampleDevices()
+
+            let huawei = RouterProfile(
+                name: "راوتر 4G (Huawei B311)",
+                routerIP: "192.168.1.1",
+                username: "admin",
+                password: "",
+                firmware: .huaweiB311,
+                totalPlanGB: 140.0,
+                renewalDay: 1
+            )
+
+            self.routers = [huawei, dlink]
+            self.activeRouterID = huawei.id
             saveAllProfiles()
         }
     }
@@ -139,6 +155,8 @@ class RouterService: ObservableObject {
         let snapshot = WidgetSnapshot(
             routerName: r.name,
             routerIP: r.routerIP,
+            carrierName: r.carrierName,
+            liveSpeedFormatted: r.liveSpeedFormatted,
             usedGB: r.usedGB,
             remainingGB: r.remainingGB,
             totalPlanGB: r.totalPlanGB,
@@ -176,10 +194,10 @@ class RouterService: ObservableObject {
         UNUserNotificationCenter.current().add(req)
     }
 
-    // MARK: - العمل في الخلفية والأتمتة (BGAppRefresh + URL Scheme)
+    // MARK: - العمل في الخلفية والأتمتة
     func scheduleBackgroundRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: Self.bgTaskIdentifier)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60) // كل 15 دقيقة
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         do {
             try BGTaskScheduler.shared.submit(request)
             addLog("تمت جدولة الفحص الخلفي التلقائي")
@@ -235,14 +253,12 @@ class RouterService: ObservableObject {
             r.accumulatedBytes += deltaBytes
             r.lastRecordedWANBytes = currentWANBytes
         } else {
-            // حدث ريستارت للراوتر وتصفّر عداد الـ WAN
             deltaBytes = currentWANBytes
             r.accumulatedBytes += deltaBytes
             r.lastRecordedWANBytes = currentWANBytes
             addLog("تم رصد إعادة تشغيل الراوتر وحفظ الاستهلاك السابق بدون فقدان")
         }
 
-        // تحديث سجل الاستهلاك اليومي
         if deltaBytes > 0 {
             let deltaGB = Double(deltaBytes) / (1024.0 * 1024.0 * 1024.0)
             let fmt = DateFormatter()
@@ -292,32 +308,182 @@ class RouterService: ObservableObject {
         addLog("تم تصفير عداد الدورة الحالية يدوياً")
     }
 
-    // MARK: - الاتصال بالراوتر (Login + Fetch)
+    // MARK: - الاتصال بالراوتر (يدعم D-Link و Huawei B311)
     func loginAndRefresh() async -> Bool {
         isLoading = true
         defer { isLoading = false }
         let r = activeRouter
 
+        if r.firmware == .huaweiB311 {
+            return await loginAndRefreshHuawei(router: r)
+        } else {
+            return await loginAndRefreshDLink(router: r)
+        }
+    }
+
+    // MARK: - منطق راوترات Huawei (B311-221 HiLink API)
+    private func loginAndRefreshHuawei(router: RouterProfile) async -> Bool {
+        var r = router
+        // 1. جلب البيانات العامة المتاحة فوراً بدون كلمة سر (إحصائيات الشهر والسرعة اللحظية ومزود الخدمة)
+        await fetchHuaweiPublicStats(&r)
+
+        // 2. إذا توفرت كلمة المرور، نقوم بالمصافحة وتأكيد تسجيل الدخول لجلب الأجهزة
+        if !r.password.isEmpty {
+            await authenticateHuawei(&r)
+            await fetchHuaweiHosts(&r)
+        }
+
+        self.activeRouter = r
+        self.isConnected = true
+        self.statusMessage = ""
+        syncWidgetSnapshot()
+        scheduleBackgroundRefresh()
+        return true
+    }
+
+    private func fetchHuaweiPublicStats(_ r: inout RouterProfile) async {
+        // اسم مزود الشريحة (Orange EG / Vodafone / etc.)
+        if let url = URL(string: "http://\(r.routerIP)/api/net/current-plmn"),
+           let (data, _) = try? await session.data(from: url),
+           let xml = String(data: data, encoding: .utf8),
+           let carrier = extractXMLTag("FullName", from: xml) ?? extractXMLTag("ShortName", from: xml) {
+            r.carrierName = carrier
+            addLog("شبكة 4G: \(carrier)")
+        }
+
+        // السرعة اللحظية للرفع والتحميل
+        if let url = URL(string: "http://\(r.routerIP)/api/monitoring/traffic-statistics"),
+           let (data, _) = try? await session.data(from: url),
+           let xml = String(data: data, encoding: .utf8) {
+            if let downBytes = extractXMLTag("CurrentDownloadRate", from: xml), let dVal = Double(downBytes) {
+                r.liveDownloadRateKbps = dVal / 1024.0
+            }
+            if let upBytes = extractXMLTag("CurrentUploadRate", from: xml), let uVal = Double(upBytes) {
+                r.liveUploadRateKbps = uVal / 1024.0
+            }
+        }
+
+        // إحصائيات استهلاك الشهر المدمجة في راوتر Huawei
+        if let url = URL(string: "http://\(r.routerIP)/api/monitoring/month_statistics"),
+           let (data, _) = try? await session.data(from: url),
+           let xml = String(data: data, encoding: .utf8) {
+            let downStr = extractXMLTag("CurrentMonthDownload", from: xml) ?? "0"
+            let upStr = extractXMLTag("CurrentMonthUpload", from: xml) ?? "0"
+            if let down = UInt64(downStr), let up = UInt64(upStr), (down + up) > 0 {
+                let totalMonthBytes = down + up
+                r.accumulatedBytes = totalMonthBytes
+                r.lastSyncDate = Date()
+                addLog("استهلاك Huawei B311 المباشر: \(String(format: "%.2f", Double(totalMonthBytes) / (1024.0 * 1024.0 * 1024.0))) GB")
+            }
+        }
+    }
+
+    private func authenticateHuawei(_ r: inout RouterProfile) async {
+        guard let url = URL(string: "http://\(r.routerIP)/api/webserver/SesTokInfo"),
+              let (data, _) = try? await session.data(from: url),
+              let xml = String(data: data, encoding: .utf8),
+              let sesInfo = extractXMLTag("SesInfo", from: xml),
+              let tokInfo = extractXMLTag("TokInfo", from: xml) else {
+            return
+        }
+
+        sessionCookies[r.id] = sesInfo
+        verificationTokens[r.id] = tokInfo
+
+        // تشفير كلمة السر وفق بروتوكول Huawei password_type 4 (SHA256 Challenge)
+        let pwdHash = sha256Hex(r.password)
+        let pwdB64 = Data(pwdHash.utf8).base64EncodedString()
+        let authString = "\(r.username)\(pwdB64)\(tokInfo)"
+        let finalHash = sha256Hex(authString)
+        let finalPassword = Data(finalHash.utf8).base64EncodedString()
+
+        guard let loginURL = URL(string: "http://\(r.routerIP)/api/user/login") else { return }
+        var req = URLRequest(loginURL: loginURL, cookie: sesInfo, token: tokInfo)
+        req.httpMethod = "POST"
+        req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        let xmlBody = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <request>
+            <Username>\(r.username)</Username>
+            <Password>\(finalPassword)</Password>
+            <password_type>4</password_type>
+        </request>
+        """
+        req.httpBody = xmlBody.data(using: .utf8)
+
+        if let (_, res) = try? await session.data(for: req),
+           let http = res as? HTTPURLResponse {
+            if let newCookie = http.allHeaderFields["Set-Cookie"] as? String {
+                sessionCookies[r.id] = newCookie
+            }
+            if let newTok = http.allHeaderFields["__RequestVerificationToken"] as? String {
+                verificationTokens[r.id] = newTok
+            }
+            addLog("تم تسجيل الدخول لراوتر Huawei B311 بنجاح")
+        }
+    }
+
+    private func fetchHuaweiHosts(_ r: inout RouterProfile) async {
+        guard let url = URL(string: "http://\(r.routerIP)/api/wlan/host-list") else { return }
+        var req = URLRequest(loginURL: url, cookie: sessionCookies[r.id], token: verificationTokens[r.id])
+        guard let (data, _) = try? await session.data(for: req),
+              let xml = String(data: data, encoding: .utf8) else { return }
+
+        let parsed = parseHuaweiHostList(xml, existingRouter: r)
+        if !parsed.isEmpty {
+            r.devices = parsed
+            addLog("تم جلب \(parsed.count) جهاز متصل براوتر Huawei")
+        }
+    }
+
+    private func parseHuaweiHostList(_ xml: String, existingRouter: RouterProfile) -> [NetworkDevice] {
+        var results: [NetworkDevice] = []
+        let hostPattern = #"<Host>([\s\S]*?)<\/Host>"#
+        guard let hostRegex = try? NSRegularExpression(pattern: hostPattern) else { return results }
+        let matches = hostRegex.matches(in: xml, range: NSRange(xml.startIndex..., in: xml))
+
+        for match in matches {
+            guard let hostRange = Range(match.range(at: 1), in: xml) else { continue }
+            let hostContent = String(xml[hostRange])
+            let mac = extractXMLTag("MacAddress", from: hostContent)?.uppercased() ?? ""
+            guard !mac.isEmpty else { continue }
+            let ip = extractXMLTag("IpAddress", from: hostContent) ?? "192.168.1.50"
+            let hostName = extractXMLTag("HostName", from: hostContent) ?? ""
+            let existing = existingRouter.devices.first(where: { $0.id == mac })
+
+            results.append(NetworkDevice(
+                ipAddress: ip,
+                macAddress: mac,
+                originalHostname: hostName,
+                customName: existingRouter.customDeviceNames[mac] ?? existing?.customName,
+                isOnline: true,
+                isBlocked: existing?.isBlocked ?? false,
+                isThrottled: existing?.isThrottled ?? false,
+                currentSpeedKbps: existing?.currentSpeedKbps ?? 0,
+                isTrusted: existing?.isTrusted ?? false,
+                firstSeen: existing?.firstSeen ?? Date(),
+                lastSeen: Date()
+            ))
+        }
+        return results
+    }
+
+    // MARK: - منطق راوترات D-Link
+    private func loginAndRefreshDLink(router: RouterProfile) async -> Bool {
+        let r = router
         let loginEndpoint: String
         switch r.firmware {
-        case .me110Boa:
-            loginEndpoint = "http://\(r.routerIP)/login.cgi"
-        case .revR1JsonRpc:
-            loginEndpoint = "http://\(r.routerIP)/api/login"
-        case .genericRealtek:
-            loginEndpoint = "http://\(r.routerIP)/boaform/admin/formLogin"
+        case .me110Boa: loginEndpoint = "http://\(r.routerIP)/login.cgi"
+        case .revR1JsonRpc: loginEndpoint = "http://\(r.routerIP)/api/login"
+        case .genericRealtek: loginEndpoint = "http://\(r.routerIP)/boaform/admin/formLogin"
+        case .huaweiB311: loginEndpoint = "http://\(r.routerIP)/api/user/login"
         }
 
-        guard let url = URL(string: loginEndpoint) else {
-            statusMessage = "عنوان IP غير صالح"
-            return false
-        }
-
+        guard let url = URL(string: loginEndpoint) else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        let body = "username=\(r.username)&password=\(r.password)"
-        req.httpBody = body.data(using: .utf8)
+        req.httpBody = "username=\(r.username)&password=\(r.password)".data(using: .utf8)
 
         do {
             let (_, res) = try await session.data(for: req)
@@ -327,12 +493,10 @@ class RouterService: ObservableObject {
                 }
                 isConnected = (200...399).contains(http.statusCode)
                 statusMessage = ""
-                addLog("تم الاتصال بالراوتر (\(r.routerIP)) - كود \(http.statusCode)")
-                await refreshRouterData()
+                await refreshDLinkData()
                 return true
             }
         } catch {
-            // في حال عدم التواجد على نفس الشبكة نفتح وضع الإدارة مع البيانات المحفوظة
             isConnected = true
             statusMessage = "وضع عدم الاتصال المباشر (يعرض آخر بيانات محفوظة)"
             addLog("تعذر الوصول المباشر لـ \(r.routerIP): \(error.localizedDescription)", isError: true)
@@ -341,16 +505,7 @@ class RouterService: ObservableObject {
         return isConnected
     }
 
-    func refreshRouterData() async {
-        isLoading = true
-        defer { isLoading = false }
-        await fetchWANTraffic()
-        await fetchConnectedDevices()
-        syncWidgetSnapshot()
-        scheduleBackgroundRefresh()
-    }
-
-    private func fetchWANTraffic() async {
+    private func refreshDLinkData() async {
         let r = activeRouter
         let paths = ["status_traffic.html", "tc.html", "status.html"]
         for path in paths {
@@ -361,70 +516,11 @@ class RouterService: ObservableObject {
                let html = String(data: data, encoding: .utf8),
                let bytes = extractWANBytes(from: html) {
                 processWANBytes(bytes)
-                addLog("تم تحديث عداد الـ WAN: \(bytes) بايت")
-                return
+                break
             }
         }
-    }
-
-    private func fetchConnectedDevices() async {
-        var r = activeRouter
-        let paths = ["dhcptbl.html", "dhcpclients.cgi", "wlstatbl.htm"]
-        var discovered: [NetworkDevice] = []
-
-        for path in paths {
-            guard let url = URL(string: "http://\(r.routerIP)/\(path)") else { continue }
-            var req = URLRequest(url: url)
-            if let cookie = sessionCookies[r.id] { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
-            if let (data, _) = try? await session.data(for: req),
-               let html = String(data: data, encoding: .utf8) {
-                let parsed = parseClientsFromHTML(html, existingRouter: r)
-                if !parsed.isEmpty {
-                    discovered = parsed
-                    break
-                }
-            }
-        }
-
-        if !discovered.isEmpty {
-            // دمج الأجهزة المكتشفة مع الأجهزة المحفوظة سابقاً
-            var merged = r.devices.map { dev -> NetworkDevice in
-                var copy = dev
-                copy.isOnline = false
-                return copy
-            }
-
-            for live in discovered {
-                if let idx = merged.firstIndex(where: { $0.id == live.id }) {
-                    merged[idx].isOnline = true
-                    merged[idx].ipAddress = live.ipAddress
-                    merged[idx].lastSeen = Date()
-                    if let custom = r.customDeviceNames[live.id] {
-                        merged[idx].customName = custom
-                    }
-                } else {
-                    merged.insert(live, at: 0)
-                }
-
-                // التحقق مما إذا كان الجهاز جديداً كلياً
-                if !r.knownMacAddresses.contains(live.id) {
-                    r.knownMacAddresses.append(live.id)
-                    if r.notifyOnNewDevice {
-                        sendAlert(
-                            title: "🔔 جهاز جديد على (\(r.name))",
-                            body: "اتصل جهاز جديد بالشبكة: \(live.displayName) [\(live.ipAddress)]"
-                        )
-                    }
-                    addLog("جهاز جديد دخل الشبكة: \(live.macAddress)")
-                }
-            }
-            r.devices = merged
-        } else if r.devices.isEmpty {
-            r.devices = Self.sampleDevices()
-        }
-
-        r.lastSyncDate = Date()
-        activeRouter = r
+        syncWidgetSnapshot()
+        scheduleBackgroundRefresh()
     }
 
     private func extractWANBytes(from html: String) -> UInt64? {
@@ -441,47 +537,7 @@ class RouterService: ObservableObject {
         return nil
     }
 
-    private func parseClientsFromHTML(_ html: String, existingRouter: RouterProfile) -> [NetworkDevice] {
-        var results: [NetworkDevice] = []
-        let macPattern = #"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})"#
-        let ipPattern = #"192\.168\.\d{1,3}\.\d{1,3}"#
-        guard let macRegex = try? NSRegularExpression(pattern: macPattern),
-              let ipRegex = try? NSRegularExpression(pattern: ipPattern) else { return results }
-
-        let macMatches = macRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
-        let ipMatches = ipRegex.matches(in: html, range: NSRange(html.startIndex..., in: html))
-
-        var seenMACs = Set<String>()
-        for (idx, match) in macMatches.enumerated() {
-            guard let macRange = Range(match.range, in: html) else { continue }
-            let mac = String(html[macRange]).replacingOccurrences(of: "-", with: ":").uppercased()
-            guard !seenMACs.contains(mac) else { continue }
-            seenMACs.insert(mac)
-
-            var ip = "192.168.1.\(10 + idx)"
-            if idx < ipMatches.count, let ipRange = Range(ipMatches[idx].range, in: html) {
-                ip = String(html[ipRange])
-            }
-
-            let existing = existingRouter.devices.first(where: { $0.id == mac })
-            results.append(NetworkDevice(
-                ipAddress: ip,
-                macAddress: mac,
-                originalHostname: existing?.originalHostname ?? "",
-                customName: existingRouter.customDeviceNames[mac] ?? existing?.customName,
-                isOnline: true,
-                isBlocked: existing?.isBlocked ?? false,
-                isThrottled: existing?.isThrottled ?? false,
-                currentSpeedKbps: existing?.currentSpeedKbps ?? 0,
-                isTrusted: existing?.isTrusted ?? false,
-                firstSeen: existing?.firstSeen ?? Date(),
-                lastSeen: Date()
-            ))
-        }
-        return results
-    }
-
-    // MARK: - إجراءات التحكم في الأجهزة (تسمية، حظر، سرعة، إضافة يدوية)
+    // MARK: - إجراءات التحكم في الأجهزة
     func renameDevice(_ device: NetworkDevice, newName: String) {
         var r = activeRouter
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -521,9 +577,6 @@ class RouterService: ObservableObject {
         )
         r.devices.removeAll { $0.id == cleanMAC }
         r.devices.insert(newDev, at: 0)
-        if !r.knownMacAddresses.contains(cleanMAC) {
-            r.knownMacAddresses.append(cleanMAC)
-        }
         activeRouter = r
         addLog("تمت إضافة جهاز يدوياً: \(name)")
     }
@@ -531,18 +584,39 @@ class RouterService: ObservableObject {
     func toggleBlock(_ device: NetworkDevice) async {
         var r = activeRouter
         let newBlockState = !device.isBlocked
-        let endpoint = r.firmware == .genericRealtek
-            ? "http://\(r.routerIP)/boaform/admin/formWlanSetup"
-            : "http://\(r.routerIP)/form2WlanSetup.cgi"
 
-        if let url = URL(string: endpoint) {
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            if let cookie = sessionCookies[r.id] { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
-            let action = newBlockState ? "add" : "delete"
-            req.httpBody = "action=\(action)&mac=\(device.macAddress)&filter_mode=deny".data(using: .utf8)
-            let _ = try? await session.data(for: req)
+        if r.firmware == .huaweiB311 {
+            // حظر عبر Huawei MAC Filter
+            if let url = URL(string: "http://\(r.routerIP)/api/wlan/mac-filter") {
+                var req = URLRequest(loginURL: url, cookie: sessionCookies[r.id], token: verificationTokens[r.id])
+                req.httpMethod = "POST"
+                req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+                let xml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <request>
+                    <filter_policy>\(newBlockState ? 1 : 0)</filter_policy>
+                    <mac_filter_list>
+                        <mac_filter><mac>\(device.macAddress)</mac></mac_filter>
+                    </mac_filter_list>
+                </request>
+                """
+                req.httpBody = xml.data(using: .utf8)
+                let _ = try? await session.data(for: req)
+            }
+        } else {
+            // حظر عبر D-Link
+            let endpoint = r.firmware == .genericRealtek
+                ? "http://\(r.routerIP)/boaform/admin/formWlanSetup"
+                : "http://\(r.routerIP)/form2WlanSetup.cgi"
+            if let url = URL(string: endpoint) {
+                var req = URLRequest(url: url)
+                req.httpMethod = "POST"
+                req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                if let cookie = sessionCookies[r.id] { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
+                let action = newBlockState ? "add" : "delete"
+                req.httpBody = "action=\(action)&mac=\(device.macAddress)&filter_mode=deny".data(using: .utf8)
+                let _ = try? await session.data(for: req)
+            }
         }
 
         if let idx = r.devices.firstIndex(where: { $0.id == device.id }) {
@@ -554,19 +628,21 @@ class RouterService: ObservableObject {
 
     func setThrottle(_ device: NetworkDevice, speedKbps: Int) async {
         var r = activeRouter
-        let endpoint = r.firmware == .genericRealtek
-            ? "http://\(r.routerIP)/boaform/admin/formTrafficControl"
-            : "http://\(r.routerIP)/tc.cgi"
+        if r.firmware != .huaweiB311 {
+            let endpoint = r.firmware == .genericRealtek
+                ? "http://\(r.routerIP)/boaform/admin/formTrafficControl"
+                : "http://\(r.routerIP)/tc.cgi"
 
-        if let url = URL(string: endpoint) {
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            if let cookie = sessionCookies[r.id] { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
-            let enable = speedKbps > 0 ? "1" : "0"
-            let upSpeed = max(128, speedKbps / 2)
-            req.httpBody = "tc_enable=\(enable)&ip=\(device.ipAddress)&down_bw=\(speedKbps)&up_bw=\(upSpeed)".data(using: .utf8)
-            let _ = try? await session.data(for: req)
+            if let url = URL(string: endpoint) {
+                var req = URLRequest(url: url)
+                req.httpMethod = "POST"
+                req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                if let cookie = sessionCookies[r.id] { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
+                let enable = speedKbps > 0 ? "1" : "0"
+                let upSpeed = max(128, speedKbps / 2)
+                req.httpBody = "tc_enable=\(enable)&ip=\(device.ipAddress)&down_bw=\(speedKbps)&up_bw=\(upSpeed)".data(using: .utf8)
+                let _ = try? await session.data(for: req)
+            }
         }
 
         if let idx = r.devices.firstIndex(where: { $0.id == device.id }) {
@@ -581,22 +657,50 @@ class RouterService: ObservableObject {
 
     func rebootActiveRouter() async {
         let r = activeRouter
-        let endpoint = r.firmware == .genericRealtek
-            ? "http://\(r.routerIP)/boaform/admin/formReboot"
-            : "http://\(r.routerIP)/rebootinfo.cgi"
+        if r.firmware == .huaweiB311 {
+            // إعادة تشغيل Huawei B311
+            if let url = URL(string: "http://\(r.routerIP)/api/device/control") {
+                var req = URLRequest(loginURL: url, cookie: sessionCookies[r.id], token: verificationTokens[r.id])
+                req.httpMethod = "POST"
+                req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+                req.httpBody = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><request><Control>1</Control></request>".data(using: .utf8)
+                let _ = try? await session.data(for: req)
+            }
+        } else {
+            // إعادة تشغيل D-Link
+            let endpoint = r.firmware == .genericRealtek
+                ? "http://\(r.routerIP)/boaform/admin/formReboot"
+                : "http://\(r.routerIP)/rebootinfo.cgi"
 
-        if let url = URL(string: endpoint) {
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            if let cookie = sessionCookies[r.id] { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
-            req.httpBody = "reboot=1&action=reboot".data(using: .utf8)
-            let _ = try? await session.data(for: req)
+            if let url = URL(string: endpoint) {
+                var req = URLRequest(url: url)
+                req.httpMethod = "POST"
+                if let cookie = sessionCookies[r.id] { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
+                req.httpBody = "reboot=1&action=reboot".data(using: .utf8)
+                let _ = try? await session.data(for: req)
+            }
         }
         addLog("تم إرسال أمر إعادة تشغيل الراوتر (\(r.name))")
-        sendAlert(title: "🔄 إعادة تشغيل (\(r.name))", body: "جاري إعادة تشغيل الراوتر... سيعود الواي فاي خلال 90 ثانية.")
+        sendAlert(title: "🔄 إعادة تشغيل (\(r.name))", body: "جاري إعادة تشغيل الراوتر... سيعود الاتصال خلال 90 ثانية.")
     }
 
-    // MARK: - تصدير واستيراد نسخة احتياطية
+    // MARK: - أدوات مساعدة (Crypto + XML)
+    private func sha256Hex(_ str: String) -> String {
+        let digest = SHA256.hash(data: Data(str.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func extractXMLTag(_ tag: String, from xml: String) -> String? {
+        let pattern = "<\(tag)>([^<]+)</\(tag)>"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(xml.startIndex..., in: xml)
+        if let match = regex.firstMatch(in: xml, range: range),
+           let r = Range(match.range(at: 1), in: xml) {
+            return String(xml[r])
+        }
+        return nil
+    }
+
     func exportBackupJSON() -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -648,20 +752,20 @@ class RouterService: ObservableObject {
                 isTrusted: true,
                 firstSeen: Date().addingTimeInterval(-86400 * 20),
                 lastSeen: Date()
-            ),
-            NetworkDevice(
-                ipAddress: "192.168.1.22",
-                macAddress: "A0:B1:C2:33:44:55",
-                originalHostname: "Guest-Phone",
-                customName: "جهاز ضيف",
-                isOnline: true,
-                isBlocked: false,
-                isThrottled: true,
-                currentSpeedKbps: 512,
-                isTrusted: false,
-                firstSeen: Date().addingTimeInterval(-3600),
-                lastSeen: Date()
             )
         ]
+    }
+}
+
+// MARK: - ملحق URLRequest لراوترات Huawei
+fileprivate extension URLRequest {
+    init(loginURL: URL, cookie: String?, token: String?) {
+        self.init(url: loginURL)
+        if let c = cookie {
+            self.setValue(c.contains("SessionID=") ? c : "SessionID=\(c)", forHTTPHeaderField: "Cookie")
+        }
+        if let t = token {
+            self.setValue(t, forHTTPHeaderField: "__RequestVerificationToken")
+        }
     }
 }

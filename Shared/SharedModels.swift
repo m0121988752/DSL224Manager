@@ -5,6 +5,7 @@ enum FirmwareProtocol: String, Codable, CaseIterable, Identifiable {
     case me110Boa = "D-Link ME_1.10 (CGI/Boa)"
     case revR1JsonRpc = "D-Link Rev.R1 (JSON-RPC 3.x)"
     case genericRealtek = "Realtek Standard (boaform)"
+    case huaweiB311 = "Huawei B311 / HiLink 4G"
 
     var id: String { rawValue }
 }
@@ -51,7 +52,7 @@ struct DailyUsageRecord: Identifiable, Codable, Hashable {
     var consumedGB: Double
 }
 
-// MARK: - ملف تعريف الراوتر الكامل (يدعم راوترات متعددة)
+// MARK: - ملف تعريف الراوتر الكامل (يدعم راوترات متعددة + Huawei B311)
 struct RouterProfile: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var name: String = "راوتر المنزل"
@@ -59,6 +60,11 @@ struct RouterProfile: Identifiable, Codable, Hashable {
     var username: String = "admin"
     var password: String = ""
     var firmware: FirmwareProtocol = .me110Boa
+
+    // بيانات شبكة 4G / مشغل الشريحة (خاصة براوترات Huawei مثل B311)
+    var carrierName: String? = nil
+    var liveDownloadRateKbps: Double? = nil
+    var liveUploadRateKbps: Double? = nil
 
     // إعدادات الباقة
     var totalPlanGB: Double = 140.0
@@ -138,6 +144,16 @@ struct RouterProfile: Identifiable, Codable, Hashable {
     var throttledDevicesCount: Int {
         devices.filter { $0.isThrottled }.count
     }
+
+    var liveSpeedFormatted: String? {
+        guard let down = liveDownloadRateKbps else { return nil }
+        let up = liveUploadRateKbps ?? 0
+        if down >= 1024 {
+            return String(format: "⬇ %.1f MB/s • ⬆ %.0f KB/s", down / 1024.0, up)
+        } else {
+            return String(format: "⬇ %.0f KB/s • ⬆ %.0f KB/s", down, up)
+        }
+    }
 }
 
 // MARK: - نموذج سجل العمليات (Logs)
@@ -159,6 +175,8 @@ struct LogEntry: Identifiable, Codable, Hashable {
 struct WidgetSnapshot: Codable {
     var routerName: String
     var routerIP: String
+    var carrierName: String?
+    var liveSpeedFormatted: String?
     var usedGB: Double
     var remainingGB: Double
     var totalPlanGB: Double
@@ -173,6 +191,8 @@ struct WidgetSnapshot: Codable {
     static let placeholder = WidgetSnapshot(
         routerName: "راوتر المنزل",
         routerIP: "192.168.1.1",
+        carrierName: "Orange EG",
+        liveSpeedFormatted: "⬇ 2.4 MB/s",
         usedGB: 64.5,
         remainingGB: 75.5,
         totalPlanGB: 140.0,

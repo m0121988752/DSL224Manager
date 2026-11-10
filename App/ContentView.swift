@@ -103,7 +103,7 @@ struct DashboardTabView: View {
                             .cornerRadius(8)
                         }
 
-                        // بطاقة الباقة الشاملة
+                        // بطاقة الباقة الشاملة (مع دعم شبكة 4G والسرعة الحية لراوتر Huawei B311)
                         ComprehensiveQuotaCard(
                             router: service.activeRouter,
                             onCalibrateTap: {
@@ -201,6 +201,9 @@ struct DashboardTabView: View {
                             Button(action: { service.selectRouter(router.id) }) {
                                 HStack {
                                     Text(router.name)
+                                    if let carrier = router.carrierName {
+                                        Text("(\(carrier))")
+                                    }
                                     if router.id == service.activeRouter.id {
                                         Image(systemName: "checkmark")
                                     }
@@ -211,7 +214,7 @@ struct DashboardTabView: View {
                         HStack(spacing: 5) {
                             Image(systemName: "wifi.router.fill")
                                 .font(.caption)
-                                .foregroundColor(.blue)
+                                .foregroundColor(service.activeRouter.firmware == .huaweiB311 ? .orange : .blue)
                             Text(service.activeRouter.name)
                                 .font(.subheadline.bold())
                                 .foregroundColor(.white)
@@ -263,7 +266,7 @@ struct DashboardTabView: View {
                 }
                 Button("إلغاء", role: .cancel) {}
             }
-            // نافذة المعايرة السريعة للاستهلاك (إذا شغل التطبيق بنصف الشهر)
+            // نافذة المعايرة السريعة للاستهلاك
             .alert("ضبط الاستهلاك الحالي (GB)", isPresented: $showQuickCalibrate) {
                 TextField("الجيجابايت المستهلكة حالياً", text: $calibrateInputGB)
                     .keyboardType(.decimalPad)
@@ -305,13 +308,36 @@ struct ComprehensiveQuotaCard: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("استهلاك الباقة الشهرية")
-                        .font(.caption.bold())
-                        .foregroundColor(.white)
-                    Text("يتجدد يوم \(router.renewalDay) • متبقي \(router.daysUntilRenewal) يوم")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text("استهلاك الباقة الشهرية")
+                            .font(.caption.bold())
+                            .foregroundColor(.white)
+
+                        if let carrier = router.carrierName {
+                            Text(carrier)
+                                .font(.system(size: 10, weight: .bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.25))
+                                .foregroundColor(.orange)
+                                .cornerRadius(4)
+                        }
+                    }
+
+                    HStack(spacing: 4) {
+                        Text("يتجدد يوم \(router.renewalDay) • متبقي \(router.daysUntilRenewal) يوم")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+
+                        if let speed = router.liveSpeedFormatted {
+                            Text("•")
+                                .foregroundColor(.gray)
+                            Text(speed)
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .foregroundColor(.cyan)
+                        }
+                    }
                 }
                 Spacer()
                 Button(action: onCalibrateTap) {
@@ -475,29 +501,31 @@ struct DeviceControlRow: View {
                 }
             }
 
-            // صف أزرار تحديد السرعة
-            HStack(spacing: 5) {
-                ForEach(speedPresets, id: \.kbps) { preset in
-                    SpeedOptionButton(
-                        title: preset.label,
-                        isSelected: device.isThrottled && device.currentSpeedKbps == preset.kbps
-                    ) {
-                        Task { await service.setThrottle(device, speedKbps: preset.kbps) }
+            // صف أزرار تحديد السرعة (تعمل لراوترات D-Link)
+            if service.activeRouter.firmware != .huaweiB311 {
+                HStack(spacing: 5) {
+                    ForEach(speedPresets, id: \.kbps) { preset in
+                        SpeedOptionButton(
+                            title: preset.label,
+                            isSelected: device.isThrottled && device.currentSpeedKbps == preset.kbps
+                        ) {
+                            Task { await service.setThrottle(device, speedKbps: preset.kbps) }
+                        }
                     }
-                }
 
-                SpeedOptionButton(
-                    title: isCustomSpeed ? "\(device.currentSpeedKbps)K" : "مخصص",
-                    isSelected: isCustomSpeed
-                ) {
-                    onCustomSpeed()
-                }
+                    SpeedOptionButton(
+                        title: isCustomSpeed ? "\(device.currentSpeedKbps)K" : "مخصص",
+                        isSelected: isCustomSpeed
+                    ) {
+                        onCustomSpeed()
+                    }
 
-                SpeedOptionButton(
-                    title: "كاملة",
-                    isSelected: !device.isThrottled || device.currentSpeedKbps == 0
-                ) {
-                    Task { await service.setThrottle(device, speedKbps: 0) }
+                    SpeedOptionButton(
+                        title: "كاملة",
+                        isSelected: !device.isThrottled || device.currentSpeedKbps == 0
+                    ) {
+                        Task { await service.setThrottle(device, speedKbps: 0) }
+                    }
                 }
             }
         }

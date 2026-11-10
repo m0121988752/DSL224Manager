@@ -21,7 +21,6 @@ struct QuotaWidgetProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<QuotaWidgetEntry>) -> Void) {
         let snapshot = SharedStorage.loadWidgetSnapshot()
         let entry = QuotaWidgetEntry(date: Date(), snapshot: snapshot)
-        // جدولة تحديث تلقائي للودجت كل 20 دقيقة
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 20, to: Date()) ?? Date().addingTimeInterval(1200)
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
@@ -63,7 +62,7 @@ struct SmallQuotaWidgetView: View {
                 Image(systemName: "wifi.router.fill")
                     .font(.caption)
                     .foregroundColor(statusColor)
-                Text(snapshot.routerName)
+                Text(snapshot.carrierName ?? snapshot.routerName)
                     .font(.caption.bold())
                     .foregroundColor(.white)
                     .lineLimit(1)
@@ -133,9 +132,15 @@ struct MediumQuotaWidgetView: View {
                     Text(snapshot.routerName)
                         .font(.subheadline.bold())
                         .foregroundColor(.white)
-                    Text("(\(snapshot.routerIP))")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
+                    if let carrier = snapshot.carrierName {
+                        Text("[\(carrier)]")
+                            .font(.caption2.bold())
+                            .foregroundColor(.orange)
+                    } else {
+                        Text("(\(snapshot.routerIP))")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
                 }
                 Spacer()
                 Link(destination: URL(string: "dsl224://sync")!) {
@@ -173,7 +178,7 @@ struct MediumQuotaWidgetView: View {
                 Divider().background(Color(white: 0.25))
                 StatMiniColumn(title: "المسموح يومياً", value: "\(String(format: "%.1f", snapshot.recommendedDailyGB)) GB", color: .green)
                 Divider().background(Color(white: 0.25))
-                StatMiniColumn(title: "الأجهزة المتصلة", value: "\(snapshot.onlineDevicesCount) جهاز", color: .gray)
+                StatMiniColumn(title: "السرعة اللحظية", value: snapshot.liveSpeedFormatted ?? "\(snapshot.onlineDevicesCount) متصل", color: .cyan)
             }
             .frame(maxHeight: 38)
         }
@@ -228,14 +233,14 @@ struct RectangularLockScreenWidgetView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Image(systemName: "wifi.router")
-                Text(snapshot.routerName)
+                Text(snapshot.carrierName ?? snapshot.routerName)
                     .font(.caption.bold())
                 Spacer()
                 Text("\(Int(snapshot.usedPercentage))%")
                     .font(.caption.bold())
             }
             ProgressView(value: snapshot.usedPercentage, total: 100)
-            Text("متبقي \(String(format: "%.1f", snapshot.remainingGB)) GB • \(snapshot.onlineDevicesCount) متصل")
+            Text("متبقي \(String(format: "%.1f", snapshot.remainingGB)) GB • \(snapshot.liveSpeedFormatted ?? "\(snapshot.onlineDevicesCount) متصل")")
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
