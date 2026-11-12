@@ -418,6 +418,7 @@ class RouterService: ObservableObject {
               let xml = String(data: data, encoding: .utf8),
               let sesInfo = extractXMLTag("SesInfo", from: xml),
               let tokInfo = extractXMLTag("TokInfo", from: xml) else {
+            addLog("❌ فشل جلب SesTokInfo من راوتر Huawei", isError: true)
             return
         }
 
@@ -425,16 +426,21 @@ class RouterService: ObservableObject {
         if let http = res as? HTTPURLResponse, let sc = http.allHeaderFields["Set-Cookie"] as? String {
             currentCookie = sc
         }
-        sessionCookies[r.id] = currentCookie
+        // تنظيف الـ cookie - أخذ الجزء الأول فقط قبل ";"
+        let cleanCookie = currentCookie.components(separatedBy: ";").first?.trimmingCharacters(in: .whitespaces) ?? currentCookie
+        sessionCookies[r.id] = cleanCookie
         verificationTokens[r.id] = tokInfo
+        addLog("📡 SesTokInfo: sesInfo=\(sesInfo.prefix(20))... tok=\(tokInfo.prefix(10))...")
 
-        // 2. محاولة تسجيل الدخول عبر SCRAM-SHA256 (البروتوكول الإلزامي لراوترات Huawei / Airbox الحديثة)
-        let firstNonce = (0..<32).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+        // 2. بناء رسالة SCRAM الأولى (client-first-message-bare)
+        let firstNonce = (0..<24).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+        let clientFirstMessageBare = "n=\(r.username),r=\(firstNonce)"
+
         if let challengeURL = URL(string: "http://\(r.routerIP)/api/user/challenge_login") {
             var chalReq = URLRequest(url: challengeURL)
             chalReq.httpMethod = "POST"
             chalReq.setValue("application/xml", forHTTPHeaderField: "Content-Type")
-            chalReq.setValue(currentCookie.contains("SessionID=") ? currentCookie : "SessionID=\(currentCookie)", forHTTPHeaderField: "Cookie")
+            chalReq.setValue(cleanCookie.contains("SessionID=") ? cleanCookie : "SessionID=\(cleanCookie)", forHTTPHeaderField: "Cookie")
             chalReq.setValue(tokInfo, forHTTPHeaderField: "__RequestVerificationToken")
             let chalBody = """
             <?xml version="1.0" encoding="UTF-8"?>
@@ -446,101 +452,102 @@ class RouterService: ObservableObject {
             """
             chalReq.httpBody = chalBody.data(using: .utf8)
 
-            if let (chalData, chalRes) = try? await session.data(for: chalReq),
-               let chalXML = String(data: chalData, encoding: .utf8),
-               let saltHex = extractXMLTag("salt", from: chalXML),
-               let serverNonce = extractXMLTag("servernonce", from: chalXML) {
+            guard let (chalData, chalRes) = try? await session.data(for: chalReq),
+                  let chalXML = String(data: chalData, encoding: .utf8) else {
+                addLog("❌ فشل إرسال challenge_login", isError: true)
+                return
+            }
+            addLog("📡 challenge response: \(chalXML.prefix(200))")
 
-                let iterations = Int(extractXMLTag("iterations", from: chalXML) ?? "100") ?? 100
-                var step2Token = tokInfo
-                var step2Cookie = currentCookie
-                if let http = chalRes as? HTTPURLResponse {
-                    if let t = http.allHeaderFields["__RequestVerificationToken"] as? String { step2Token = t }
-                    if let c = http.allHeaderFields["Set-Cookie"] as? String { step2Cookie = c }
+            guard let saltHex = extractXMLTag("salt", from: chalXML),
+                  let serverNonce = extractXMLTag("servernonce", from: chalXML) else {
+                let errCode = extractXMLTag("code", from: chalXML) ?? "؟"
+                addLog("❌ challenge_login فشل (كود: \(errCode)): \(chalXML.prefix(100))", isError: true)
+                return
+            }
+
+            let iterations = Int(extractXMLTag("iterations", from: chalXML) ?? "100") ?? 100
+            var step2Token = tokInfo
+            var step2Cookie = cleanCookie
+            if let http = chalRes as? HTTPURLResponse {
+                if let t = http.allHeaderFields["__RequestVerificationToken"] as? String { step2Token = t }
+                if let c = http.allHeaderFields["Set-Cookie"] as? String {
+                    step2Cookie = c.components(separatedBy: ";").first?.trimmingCharacters(in: .whitespaces) ?? c
                 }
+            }
 
-                // حساب برهان المصادقة SCRAM Client Proof
-                if let saltBytes = dataFromHex(saltHex),
-                   let saltedPassword = pbkdf2SHA256(password: r.password, salt: saltBytes, iterations: iterations) {
-                    let clientKey = hmacSHA256(key: saltedPassword, data: Data("Client Key".utf8))
-                    let storedKey = Data(SHA256.hash(data: clientKey))
-                    let authMsg = Data("\(firstNonce),\(serverNonce),\(serverNonce)".utf8)
-                    let clientSig = hmacSHA256(key: storedKey, data: authMsg)
-                    let clientProof = hexFromData(xorBytes(clientKey, clientSig))
+            // 3. حساب SCRAM حسب RFC 5802
+            // serverFirstMessage = "r=serverNonce,s=salt,i=iterations"
+            let serverFirstMessage = "r=\(serverNonce),s=\(saltHex),i=\(iterations)"
+            // clientFinalMessageWithoutProof = "c=biws,r=serverNonce"
+            // "biws" = base64("n,,") — channel binding
+            let channelBinding = Data("n,,".utf8).base64EncodedString() // = "biws"
+            let clientFinalWithoutProof = "c=\(channelBinding),r=\(serverNonce)"
+            // authMessage = clientFirstMessageBare + "," + serverFirstMessage + "," + clientFinalWithoutProof
+            let authMessage = "\(clientFirstMessageBare),\(serverFirstMessage),\(clientFinalWithoutProof)"
 
-                    // إرسال authentication_login
-                    if let authURL = URL(string: "http://\(r.routerIP)/api/user/authentication_login") {
-                        var authReq = URLRequest(url: authURL)
-                        authReq.httpMethod = "POST"
-                        authReq.setValue("application/xml", forHTTPHeaderField: "Content-Type")
-                        authReq.setValue(step2Cookie.contains("SessionID=") ? step2Cookie : "SessionID=\(step2Cookie)", forHTTPHeaderField: "Cookie")
-                        authReq.setValue(step2Token, forHTTPHeaderField: "__RequestVerificationToken")
-                        let authBody = """
-                        <?xml version="1.0" encoding="UTF-8"?>
-                        <request>
-                            <clientproof>\(clientProof)</clientproof>
-                            <finalnonce>\(serverNonce)</finalnonce>
-                        </request>
-                        """
-                        authReq.httpBody = authBody.data(using: .utf8)
+            guard let saltBytes = dataFromHex(saltHex),
+                  let saltedPassword = pbkdf2SHA256(password: r.password, salt: saltBytes, iterations: iterations) else {
+                addLog("❌ فشل حساب PBKDF2", isError: true)
+                return
+            }
 
-                        if let (authData, authRes) = try? await session.data(for: authReq) {
-                            let authStr = String(data: authData, encoding: .utf8) ?? ""
-                            if let http = authRes as? HTTPURLResponse {
-                                if let c = http.allHeaderFields["Set-Cookie"] as? String {
-                                    sessionCookies[r.id] = c
-                                }
-                                if let t = http.allHeaderFields["__RequestVerificationToken"] as? String {
-                                    verificationTokens[r.id] = t
-                                }
-                            }
+            let clientKey = hmacSHA256(key: saltedPassword, data: Data("Client Key".utf8))
+            let storedKey = Data(SHA256.hash(data: clientKey))
+            let authMsgData = Data(authMessage.utf8)
+            let clientSig = hmacSHA256(key: storedKey, data: authMsgData)
+            let clientProofData = xorBytes(clientKey, clientSig)
+            let clientProof = clientProofData.base64EncodedString()
 
-                            if authStr.contains("<response>OK</response>") || authStr.contains("<serverproof>") {
-                                addLog("✅ تم تسجيل الدخول لراوتر Huawei بنجاح كمسؤول (SCRAM-SHA256)")
-                                return
-                            } else {
-                                let errCode = extractXMLTag("code", from: authStr) ?? "غير معروف"
-                                addLog("فشل تسجيل دخول Huawei SCRAM (كود: \(errCode)) - يرجى التأكد من كلمة المرور", isError: true)
-                                return
-                            }
-                        }
+            addLog("📡 SCRAM authMsg: \(authMessage.prefix(80))...")
+            addLog("📡 clientProof(b64): \(clientProof.prefix(30))...")
+
+            // 4. إرسال authentication_login
+            guard let authURL = URL(string: "http://\(r.routerIP)/api/user/authentication_login") else { return }
+            var authReq = URLRequest(url: authURL)
+            authReq.httpMethod = "POST"
+            authReq.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+            authReq.setValue(step2Cookie.contains("SessionID=") ? step2Cookie : "SessionID=\(step2Cookie)", forHTTPHeaderField: "Cookie")
+            authReq.setValue(step2Token, forHTTPHeaderField: "__RequestVerificationToken")
+            let authBody = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <request>
+                <clientproof>\(clientProof)</clientproof>
+                <finalnonce>\(serverNonce)</finalnonce>
+            </request>
+            """
+            authReq.httpBody = authBody.data(using: .utf8)
+
+            if let (authData, authRes) = try? await session.data(for: authReq) {
+                let authStr = String(data: authData, encoding: .utf8) ?? ""
+                addLog("📡 auth_login response: \(authStr.prefix(300))")
+                if let http = authRes as? HTTPURLResponse {
+                    if let c = http.allHeaderFields["Set-Cookie"] as? String {
+                        let cleanC = c.components(separatedBy: ";").first?.trimmingCharacters(in: .whitespaces) ?? c
+                        sessionCookies[r.id] = cleanC
+                    }
+                    if let t = http.allHeaderFields["__RequestVerificationToken"] as? String {
+                        verificationTokens[r.id] = t
+                    }
+                    // اعتبار النجاح: لا يوجد error code, أو serverproof موجود
+                    let hasError = authStr.contains("<error>") || authStr.contains("<code>")
+                    let hasServerProof = authStr.contains("<serverproof>") || authStr.contains("<response>")
+                    if hasServerProof || (!hasError && http.statusCode == 200) {
+                        addLog("✅ تم تسجيل الدخول لراوتر Huawei بنجاح (SCRAM-SHA256)")
+                        return
+                    } else {
+                        let errCode = extractXMLTag("code", from: authStr) ?? "غير معروف"
+                        addLog("❌ فشل authentication_login (كود: \(errCode))", isError: true)
+                        return
                     }
                 }
+            } else {
+                addLog("❌ لا يوجد رد من authentication_login", isError: true)
+                return
             }
         }
 
-        // 3. Fallback للراوترات الأقدم غير الداعمة لـ SCRAM (بروتوكول password_type 4)
-        let pwdHash = sha256Hex(r.password)
-        let pwdB64 = Data(pwdHash.utf8).base64EncodedString()
-        let authString = "\(r.username)\(pwdB64)\(tokInfo)"
-        let finalHash = sha256Hex(authString)
-        let finalPassword = Data(finalHash.utf8).base64EncodedString()
-
-        guard let loginURL = URL(string: "http://\(r.routerIP)/api/user/login") else { return }
-        var req = URLRequest(loginURL: loginURL, cookie: currentCookie, token: tokInfo)
-        req.httpMethod = "POST"
-        req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
-        let xmlBody = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <request>
-            <Username>\(r.username)</Username>
-            <Password>\(finalPassword)</Password>
-            <password_type>4</password_type>
-        </request>
-        """
-        req.httpBody = xmlBody.data(using: .utf8)
-
-        if let (data, res) = try? await session.data(for: req),
-           let http = res as? HTTPURLResponse {
-            let resStr = String(data: data, encoding: .utf8) ?? ""
-            if let newCookie = http.allHeaderFields["Set-Cookie"] as? String {
-                sessionCookies[r.id] = newCookie
-            }
-            if let newTok = http.allHeaderFields["__RequestVerificationToken"] as? String {
-                verificationTokens[r.id] = newTok
-            }
-            addLog("رد تسجيل دخول Huawei القديم (\(http.statusCode)): \(resStr.trimmingCharacters(in: .whitespacesAndNewlines))")
-        }
+        addLog("❌ SCRAM: لم يتم جلب salt/serverNonce من challenge_login", isError: true)
     }
 
     private func fetchHuaweiHosts(_ r: inout RouterProfile) async {
