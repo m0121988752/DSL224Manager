@@ -92,6 +92,13 @@ struct RouterProfile: Identifiable, Codable, Hashable {
     var enableWebUIFallback: Bool = true
     var webUIPath: String = ""
 
+    // تخصيص الكشط المرئي بدون كود (No-Code Scraper Customization)
+    var customUsageSelector: String = ""
+    var customUsageRegex: String = ""
+    var customUsageUnit: String = "Auto"
+    var customDeviceTableSelector: String = ""
+    var customRebootButtonSelector: String = ""
+
     enum CodingKeys: String, CodingKey {
         case id, name, routerIP, username, password, firmware
         case carrierName, liveDownloadRateKbps, liveUploadRateKbps
@@ -100,6 +107,8 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         case notifyOnNewDevice, notifyOnQuotaThreshold, alertThresholds, notifiedThresholds
         case devices, customDeviceNames, knownMacAddresses, dailyHistory
         case enableWebUIFallback, webUIPath
+        case customUsageSelector, customUsageRegex, customUsageUnit
+        case customDeviceTableSelector, customRebootButtonSelector
     }
 
     init(
@@ -129,7 +138,12 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         knownMacAddresses: [String] = [],
         dailyHistory: [DailyUsageRecord] = [],
         enableWebUIFallback: Bool = true,
-        webUIPath: String = ""
+        webUIPath: String = "",
+        customUsageSelector: String = "",
+        customUsageRegex: String = "",
+        customUsageUnit: String = "Auto",
+        customDeviceTableSelector: String = "",
+        customRebootButtonSelector: String = ""
     ) {
         self.id = id
         self.name = name
@@ -158,6 +172,11 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         self.dailyHistory = dailyHistory
         self.enableWebUIFallback = enableWebUIFallback
         self.webUIPath = webUIPath
+        self.customUsageSelector = customUsageSelector
+        self.customUsageRegex = customUsageRegex
+        self.customUsageUnit = customUsageUnit
+        self.customDeviceTableSelector = customDeviceTableSelector
+        self.customRebootButtonSelector = customRebootButtonSelector
     }
 
     init(from decoder: Decoder) throws {
@@ -189,6 +208,11 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         self.dailyHistory = try container.decodeIfPresent([DailyUsageRecord].self, forKey: .dailyHistory) ?? []
         self.enableWebUIFallback = try container.decodeIfPresent(Bool.self, forKey: .enableWebUIFallback) ?? true
         self.webUIPath = try container.decodeIfPresent(String.self, forKey: .webUIPath) ?? ""
+        self.customUsageSelector = try container.decodeIfPresent(String.self, forKey: .customUsageSelector) ?? ""
+        self.customUsageRegex = try container.decodeIfPresent(String.self, forKey: .customUsageRegex) ?? ""
+        self.customUsageUnit = try container.decodeIfPresent(String.self, forKey: .customUsageUnit) ?? "Auto"
+        self.customDeviceTableSelector = try container.decodeIfPresent(String.self, forKey: .customDeviceTableSelector) ?? ""
+        self.customRebootButtonSelector = try container.decodeIfPresent(String.self, forKey: .customRebootButtonSelector) ?? ""
     }
 
     // MARK: حسابات الباقة

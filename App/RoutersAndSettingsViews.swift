@@ -195,6 +195,10 @@ struct RouterEditorSheet: View {
     @State private var renewalDay: Int = 1
     @State private var enableWebUIFallback: Bool = true
     @State private var webUIPath: String = ""
+    @State private var customUsageSelector: String = ""
+    @State private var customUsageRegex: String = ""
+    @State private var customDeviceTableSelector: String = ""
+    @State private var customRebootButtonSelector: String = ""
 
     var body: some View {
         NavigationStack {
@@ -256,6 +260,21 @@ struct RouterEditorSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
+
+                Section("تخصيص الكشط المرئي بدون كود (No-Code Scraper)") {
+                    TextField("محدد عداد الاستهلاك (CSS Selector)", text: $customUsageSelector)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("نمط الاستخراج (Regex - اختياري)", text: $customUsageRegex)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("محدد جدول الأجهزة المتصلة", text: $customDeviceTableSelector)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("محدد زر إعادة التشغيل (Reboot Selector)", text: $customRebootButtonSelector)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
             }
             .navigationTitle(existingRouter == nil ? "إضافة راوتر جديد" : "تعديل الراوتر")
             .navigationBarTitleDisplayMode(.inline)
@@ -275,6 +294,10 @@ struct RouterEditorSheet: View {
                             edit.renewalDay = renewalDay
                             edit.enableWebUIFallback = enableWebUIFallback
                             edit.webUIPath = webUIPath
+                            edit.customUsageSelector = customUsageSelector
+                            edit.customUsageRegex = customUsageRegex
+                            edit.customDeviceTableSelector = customDeviceTableSelector
+                            edit.customRebootButtonSelector = customRebootButtonSelector
                             service.updateRouter(edit)
                         } else {
                             var newProfile = RouterProfile(
@@ -286,7 +309,11 @@ struct RouterEditorSheet: View {
                                 totalPlanGB: totalPlanGB,
                                 renewalDay: renewalDay,
                                 enableWebUIFallback: enableWebUIFallback,
-                                webUIPath: webUIPath
+                                webUIPath: webUIPath,
+                                customUsageSelector: customUsageSelector,
+                                customUsageRegex: customUsageRegex,
+                                customDeviceTableSelector: customDeviceTableSelector,
+                                customRebootButtonSelector: customRebootButtonSelector
                             )
                             newProfile.devices = RouterService.sampleDevices()
                             service.addRouter(newProfile)
@@ -306,6 +333,10 @@ struct RouterEditorSheet: View {
                     renewalDay = r.renewalDay
                     enableWebUIFallback = r.enableWebUIFallback
                     webUIPath = r.webUIPath
+                    customUsageSelector = r.customUsageSelector
+                    customUsageRegex = r.customUsageRegex
+                    customDeviceTableSelector = r.customDeviceTableSelector
+                    customRebootButtonSelector = r.customRebootButtonSelector
                 }
             }
         }
