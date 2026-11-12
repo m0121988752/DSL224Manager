@@ -193,6 +193,8 @@ struct RouterEditorSheet: View {
     @State private var firmware: FirmwareProtocol = .huaweiB311
     @State private var totalPlanGB: Double = 140.0
     @State private var renewalDay: Int = 1
+    @State private var enableWebUIFallback: Bool = true
+    @State private var webUIPath: String = ""
 
     var body: some View {
         NavigationStack {
@@ -247,6 +249,13 @@ struct RouterEditorSheet: View {
                         }
                     }
                 }
+
+                Section("المتصفح البديل وكشط البيانات (WebUI Fallback)") {
+                    Toggle("تفعيل كشط WebUI كبديل عند تعذر الـ API", isOn: $enableWebUIFallback)
+                    TextField("مسار مخصص لصفحة الراوتر (اختياري - مثال: tc.html)", text: $webUIPath)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
             }
             .navigationTitle(existingRouter == nil ? "إضافة راوتر جديد" : "تعديل الراوتر")
             .navigationBarTitleDisplayMode(.inline)
@@ -264,6 +273,8 @@ struct RouterEditorSheet: View {
                             edit.firmware = firmware
                             edit.totalPlanGB = totalPlanGB
                             edit.renewalDay = renewalDay
+                            edit.enableWebUIFallback = enableWebUIFallback
+                            edit.webUIPath = webUIPath
                             service.updateRouter(edit)
                         } else {
                             var newProfile = RouterProfile(
@@ -273,7 +284,9 @@ struct RouterEditorSheet: View {
                                 password: password,
                                 firmware: firmware,
                                 totalPlanGB: totalPlanGB,
-                                renewalDay: renewalDay
+                                renewalDay: renewalDay,
+                                enableWebUIFallback: enableWebUIFallback,
+                                webUIPath: webUIPath
                             )
                             newProfile.devices = RouterService.sampleDevices()
                             service.addRouter(newProfile)
@@ -291,6 +304,8 @@ struct RouterEditorSheet: View {
                     firmware = r.firmware
                     totalPlanGB = r.totalPlanGB
                     renewalDay = r.renewalDay
+                    enableWebUIFallback = r.enableWebUIFallback
+                    webUIPath = r.webUIPath
                 }
             }
         }
@@ -447,6 +462,7 @@ struct FullSettingsTabView: View {
     @State private var showBackupSheet: Bool = false
     @State private var backupText: String = ""
     @State private var copiedAutomationMsg: Bool = false
+    @State private var showWebUIHub: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -656,9 +672,37 @@ struct FullSettingsTabView: View {
                         Label("تصدير / استيراد الإعدادات (JSON)", systemImage: "externaldrive.fill.badge.timemachine")
                     }
                 }
+
+                // 6. أدوات متصفح WebUI وكشط البيانات والضغط على الأزرار
+                Section("متصفح الراوتر والأزرار (WebUI Fallback)") {
+                    Toggle("تفعيل كشط WebUI كبديل تلقائي عند تعذر API", isOn: Binding(
+                        get: { service.activeRouter.enableWebUIFallback },
+                        set: { var r = service.activeRouter; r.enableWebUIFallback = $0; service.activeRouter = r }
+                    ))
+
+                    Button(action: { showWebUIHub = true }) {
+                        Label("فتح متصفح الراوتر وكشف الأزرار (WebUI Hub)", systemImage: "globe.americas.fill")
+                    }
+
+                    Button(action: {
+                        Task { await service.runWebUIFallbackScrape() }
+                    }) {
+                        Label("تشغيل فحص كشط البيانات الآن (Scrape Now)", systemImage: "arrow.triangle.2.circlepath.doc.on.clipboard")
+                    }
+
+                    Button(action: {
+                        Task { _ = await service.pressWebUIButton(semanticAction: .reboot) }
+                    }) {
+                        Label("الضغط على زر إعادة التشغيل (Reboot) عبر المتصفح", systemImage: "power")
+                            .foregroundColor(.red)
+                    }
+                }
             }
             .navigationTitle("الإعدادات الشاملة")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showWebUIHub) {
+                RouterWebUIView(service: service)
+            }
             .alert("إضافة نسبة تنبيه جديدة (%)", isPresented: $showAddThresholdAlert) {
                 TextField("مثال: 60 أو 85", text: $newThresholdInput)
                     .keyboardType(.numberPad)

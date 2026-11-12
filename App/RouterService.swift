@@ -21,6 +21,7 @@ class RouterService: ObservableObject {
     private var sessionCookies: [UUID: String] = [:]
     private var verificationTokens: [UUID: String] = [:]
     private let session: URLSession
+    let webUIFallback = WebUIFallbackService.shared
 
     init() {
         let config = URLSessionConfiguration.default
@@ -308,17 +309,111 @@ class RouterService: ObservableObject {
         addLog("تم تصفير عداد الدورة الحالية يدوياً")
     }
 
-    // MARK: - الاتصال بالراوتر (يدعم D-Link و Huawei B311)
+    // MARK: - الاتصال بالراوتر (يدعم D-Link و Huawei B311 مع متصفح WebUI البديل)
     func loginAndRefresh() async -> Bool {
         isLoading = true
         defer { isLoading = false }
         let r = activeRouter
 
+        var success = false
         if r.firmware == .huaweiB311 {
-            return await loginAndRefreshHuawei(router: r)
+            success = await loginAndRefreshHuawei(router: r)
         } else {
-            return await loginAndRefreshDLink(router: r)
+            success = await loginAndRefreshDLink(router: r)
         }
+
+        // في حال تعذر الحصول على قراءة العداد أو فشل الاتصال وتفعيل المتصفح البديل
+        if (!success || (r.firmware != .huaweiB311 && r.accumulatedBytes == 0)) && r.enableWebUIFallback {
+            addLog("⚠️ محاولة الاتصال بالمتصفح البديل وكشط البيانات (WebUI Fallback)...")
+            let fallbackSuccess = await runWebUIFallbackScrape()
+            if fallbackSuccess {
+                return true
+            }
+        }
+
+        return success
+    }
+
+    // MARK: - كشط واجهة الراوتر عبر WebUI Fallback وتطبيق النتائج
+    func runWebUIFallbackScrape() async -> Bool {
+        let r = activeRouter
+        let result = await webUIFallback.autoLoginAndScrape(router: r)
+        if result.success && ((result.wanBytes ?? 0) > 0 || !result.devices.isEmpty) {
+            applyWebUIScrapeResult(result)
+            addLog("✅ نجح كشط صفحة الويب للراوتر البديلة (WebUI Scraper)")
+            return true
+        } else {
+            addLog("ملاحظة كشط WebUI: \(result.message)", isError: false)
+            return false
+        }
+    }
+
+    func applyWebUIScrapeResult(_ result: WebUIScrapeResult) {
+        var r = activeRouter
+
+        if let bytes = result.wanBytes, bytes > 0 {
+            processWANBytes(bytes)
+            addLog("تم تحديث عداد الاستهلاك عبر كشط صفحة الويب: \(String(format: "%.2f", Double(bytes)/(1024*1024*1024))) GB")
+        }
+
+        if let carrier = result.carrierName, !carrier.isEmpty {
+            r.carrierName = carrier
+        }
+
+        if let down = result.liveDownloadKbps {
+            r.liveDownloadRateKbps = down
+        }
+        if let up = result.liveUploadKbps {
+            r.liveUploadRateKbps = up
+        }
+
+        if !result.devices.isEmpty {
+            for dev in result.devices {
+                let cleanMAC = dev.macAddress.replacingOccurrences(of: "-", with: ":").uppercased()
+                if let idx = r.devices.firstIndex(where: { $0.id == cleanMAC }) {
+                    r.devices[idx].ipAddress = dev.ipAddress
+                    if !dev.hostName.isEmpty && (r.devices[idx].originalHostname.isEmpty || r.devices[idx].originalHostname.hasPrefix("جهاز")) {
+                        r.devices[idx].originalHostname = dev.hostName
+                    }
+                    r.devices[idx].isOnline = true
+                    r.devices[idx].lastSeen = Date()
+                } else {
+                    let newDevice = NetworkDevice(
+                        ipAddress: dev.ipAddress,
+                        macAddress: cleanMAC,
+                        originalHostname: dev.hostName,
+                        customName: r.customDeviceNames[cleanMAC],
+                        isOnline: true,
+                        isBlocked: false,
+                        isThrottled: false,
+                        currentSpeedKbps: 0,
+                        isTrusted: false,
+                        firstSeen: Date(),
+                        lastSeen: Date()
+                    )
+                    r.devices.append(newDevice)
+                }
+            }
+            addLog("تم استخراج \(result.devices.count) جهاز متصل عبر كشط صفحة الراوتر")
+        }
+
+        r.lastSyncDate = Date()
+        self.activeRouter = r
+        self.isConnected = true
+        self.statusMessage = ""
+        syncWidgetSnapshot()
+    }
+
+    // MARK: - الضغط على أزرار WebUI للراوتر برمجياً
+    func pressWebUIButton(selector: String? = nil, text: String? = nil, semanticAction: SemanticButtonAction? = nil) async -> (Bool, String) {
+        let r = activeRouter
+        let res = await webUIFallback.pressButton(router: r, selector: selector, text: text, semanticAction: semanticAction)
+        if res.success {
+            addLog("✅ تم الضغط على زر في صفحة الراوتر: \(res.message)")
+        } else {
+            addLog("❌ تعذر الضغط على زر WebUI: \(res.message)", isError: true)
+        }
+        return res
     }
 
     // MARK: - جلب رمز حماية جديد لراوترات Huawei (Single-use Token Refresher)
@@ -855,8 +950,14 @@ class RouterService: ObservableObject {
         }
     }
 
-    func rebootActiveRouter() async {
+    func rebootActiveRouter(preferWebUI: Bool = false) async {
         let r = activeRouter
+        if preferWebUI {
+            _ = await pressWebUIButton(semanticAction: .reboot)
+            sendAlert(title: "🔄 إعادة تشغيل (\(r.name))", body: "تم الضغط على زر إعادة التشغيل عبر المتصفح...")
+            return
+        }
+
         if r.firmware == .huaweiB311 {
             if let freshToken = await getFreshHuaweiToken(routerIP: r.routerIP),
                let url = URL(string: "http://\(r.routerIP)/api/device/control") {
@@ -883,6 +984,12 @@ class RouterService: ObservableObject {
                 let _ = try? await session.data(for: req)
             }
         }
+
+        // إذا كان المتصفح البديل مفعلاً، نقوم أيضاً بالضغط الاحتياطي على زر Reboot في WebUI
+        if r.enableWebUIFallback {
+            _ = await pressWebUIButton(semanticAction: .reboot)
+        }
+
         addLog("تم إرسال أمر إعادة تشغيل الراوتر (\(r.name))")
         sendAlert(title: "🔄 إعادة تشغيل (\(r.name))", body: "جاري إعادة تشغيل الراوتر... سيعود الاتصال خلال 90 ثانية.")
     }

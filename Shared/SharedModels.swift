@@ -88,6 +88,109 @@ struct RouterProfile: Identifiable, Codable, Hashable {
     var knownMacAddresses: [String] = []
     var dailyHistory: [DailyUsageRecord] = []
 
+    // دعم متصفح WebUI البديل وكشط البيانات والضغط على الأزرار
+    var enableWebUIFallback: Bool = true
+    var webUIPath: String = ""
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, routerIP, username, password, firmware
+        case carrierName, liveDownloadRateKbps, liveUploadRateKbps
+        case totalPlanGB, renewalDay, manualOffsetGB, lastRecordedWANBytes
+        case accumulatedBytes, lastResetMonth, lastResetYear, lastSyncDate
+        case notifyOnNewDevice, notifyOnQuotaThreshold, alertThresholds, notifiedThresholds
+        case devices, customDeviceNames, knownMacAddresses, dailyHistory
+        case enableWebUIFallback, webUIPath
+    }
+
+    init(
+        id: UUID = UUID(),
+        name: String = "راوتر المنزل",
+        routerIP: String = "192.168.1.1",
+        username: String = "admin",
+        password: String = "",
+        firmware: FirmwareProtocol = .me110Boa,
+        carrierName: String? = nil,
+        liveDownloadRateKbps: Double? = nil,
+        liveUploadRateKbps: Double? = nil,
+        totalPlanGB: Double = 140.0,
+        renewalDay: Int = 1,
+        manualOffsetGB: Double = 0.0,
+        lastRecordedWANBytes: UInt64 = 0,
+        accumulatedBytes: UInt64 = 0,
+        lastResetMonth: Int = Calendar.current.component(.month, from: Date()),
+        lastResetYear: Int = Calendar.current.component(.year, from: Date()),
+        lastSyncDate: Date? = nil,
+        notifyOnNewDevice: Bool = true,
+        notifyOnQuotaThreshold: Bool = true,
+        alertThresholds: [Int] = [50, 75, 90, 95],
+        notifiedThresholds: [Int] = [],
+        devices: [NetworkDevice] = [],
+        customDeviceNames: [String: String] = [:],
+        knownMacAddresses: [String] = [],
+        dailyHistory: [DailyUsageRecord] = [],
+        enableWebUIFallback: Bool = true,
+        webUIPath: String = ""
+    ) {
+        self.id = id
+        self.name = name
+        self.routerIP = routerIP
+        self.username = username
+        self.password = password
+        self.firmware = firmware
+        self.carrierName = carrierName
+        self.liveDownloadRateKbps = liveDownloadRateKbps
+        self.liveUploadRateKbps = liveUploadRateKbps
+        self.totalPlanGB = totalPlanGB
+        self.renewalDay = renewalDay
+        self.manualOffsetGB = manualOffsetGB
+        self.lastRecordedWANBytes = lastRecordedWANBytes
+        self.accumulatedBytes = accumulatedBytes
+        self.lastResetMonth = lastResetMonth
+        self.lastResetYear = lastResetYear
+        self.lastSyncDate = lastSyncDate
+        self.notifyOnNewDevice = notifyOnNewDevice
+        self.notifyOnQuotaThreshold = notifyOnQuotaThreshold
+        self.alertThresholds = alertThresholds
+        self.notifiedThresholds = notifiedThresholds
+        self.devices = devices
+        self.customDeviceNames = customDeviceNames
+        self.knownMacAddresses = knownMacAddresses
+        self.dailyHistory = dailyHistory
+        self.enableWebUIFallback = enableWebUIFallback
+        self.webUIPath = webUIPath
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? "راوتر المنزل"
+        self.routerIP = try container.decodeIfPresent(String.self, forKey: .routerIP) ?? "192.168.1.1"
+        self.username = try container.decodeIfPresent(String.self, forKey: .username) ?? "admin"
+        self.password = try container.decodeIfPresent(String.self, forKey: .password) ?? ""
+        self.firmware = try container.decodeIfPresent(FirmwareProtocol.self, forKey: .firmware) ?? .me110Boa
+        self.carrierName = try container.decodeIfPresent(String.self, forKey: .carrierName)
+        self.liveDownloadRateKbps = try container.decodeIfPresent(Double.self, forKey: .liveDownloadRateKbps)
+        self.liveUploadRateKbps = try container.decodeIfPresent(Double.self, forKey: .liveUploadRateKbps)
+        self.totalPlanGB = try container.decodeIfPresent(Double.self, forKey: .totalPlanGB) ?? 140.0
+        self.renewalDay = try container.decodeIfPresent(Int.self, forKey: .renewalDay) ?? 1
+        self.manualOffsetGB = try container.decodeIfPresent(Double.self, forKey: .manualOffsetGB) ?? 0.0
+        self.lastRecordedWANBytes = try container.decodeIfPresent(UInt64.self, forKey: .lastRecordedWANBytes) ?? 0
+        self.accumulatedBytes = try container.decodeIfPresent(UInt64.self, forKey: .accumulatedBytes) ?? 0
+        self.lastResetMonth = try container.decodeIfPresent(Int.self, forKey: .lastResetMonth) ?? Calendar.current.component(.month, from: Date())
+        self.lastResetYear = try container.decodeIfPresent(Int.self, forKey: .lastResetYear) ?? Calendar.current.component(.year, from: Date())
+        self.lastSyncDate = try container.decodeIfPresent(Date.self, forKey: .lastSyncDate)
+        self.notifyOnNewDevice = try container.decodeIfPresent(Bool.self, forKey: .notifyOnNewDevice) ?? true
+        self.notifyOnQuotaThreshold = try container.decodeIfPresent(Bool.self, forKey: .notifyOnQuotaThreshold) ?? true
+        self.alertThresholds = try container.decodeIfPresent([Int].self, forKey: .alertThresholds) ?? [50, 75, 90, 95]
+        self.notifiedThresholds = try container.decodeIfPresent([Int].self, forKey: .notifiedThresholds) ?? []
+        self.devices = try container.decodeIfPresent([NetworkDevice].self, forKey: .devices) ?? []
+        self.customDeviceNames = try container.decodeIfPresent([String: String].self, forKey: .customDeviceNames) ?? [:]
+        self.knownMacAddresses = try container.decodeIfPresent([String].self, forKey: .knownMacAddresses) ?? []
+        self.dailyHistory = try container.decodeIfPresent([DailyUsageRecord].self, forKey: .dailyHistory) ?? []
+        self.enableWebUIFallback = try container.decodeIfPresent(Bool.self, forKey: .enableWebUIFallback) ?? true
+        self.webUIPath = try container.decodeIfPresent(String.self, forKey: .webUIPath) ?? ""
+    }
+
     // MARK: حسابات الباقة
     var accumulatedGB: Double {
         Double(accumulatedBytes) / (1024.0 * 1024.0 * 1024.0)
@@ -230,5 +333,74 @@ enum SharedStorage {
             return decoded
         }
         return .placeholder
+    }
+}
+
+// MARK: - نماذج كشط صفحات الراوتر والضغط على الأزرار (WebUI Fallback Models)
+enum SemanticButtonAction: String, Codable, CaseIterable, Identifiable {
+    case reboot = "إعادة التشغيل (Reboot)"
+    case login = "تسجيل الدخول (Login)"
+    case apply = "حفظ وتطبيق (Apply/Save)"
+    case refresh = "تحديث البيانات (Refresh)"
+    case custom = "زر أو أمر مخصص"
+
+    var id: String { rawValue }
+}
+
+struct WebUIButtonInfo: Identifiable, Codable, Hashable {
+    var id: String
+    var selector: String
+    var tag: String
+    var text: String
+    var value: String
+    var isReboot: Bool
+    var isLogin: Bool
+    var isApply: Bool
+
+    var displayLabel: String {
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanText.isEmpty { return cleanText }
+        let cleanVal = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanVal.isEmpty { return cleanVal }
+        let cleanID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanID.isEmpty { return cleanID }
+        return selector
+    }
+}
+
+struct WebUIScrapedDevice: Identifiable, Codable, Hashable {
+    var id: String { macAddress.uppercased() }
+    var macAddress: String
+    var ipAddress: String
+    var hostName: String
+}
+
+struct WebUIScrapeResult: Codable {
+    var success: Bool
+    var wanBytes: UInt64?
+    var liveDownloadKbps: Double?
+    var liveUploadKbps: Double?
+    var carrierName: String?
+    var devices: [WebUIScrapedDevice]
+    var buttons: [WebUIButtonInfo]
+    var pageTitle: String
+    var currentURL: String
+    var rawTextSnippet: String
+    var message: String
+
+    static var empty: WebUIScrapeResult {
+        WebUIScrapeResult(
+            success: false,
+            wanBytes: nil,
+            liveDownloadKbps: nil,
+            liveUploadKbps: nil,
+            carrierName: nil,
+            devices: [],
+            buttons: [],
+            pageTitle: "",
+            currentURL: "",
+            rawTextSnippet: "",
+            message: "لا توجد نتائج"
+        )
     }
 }

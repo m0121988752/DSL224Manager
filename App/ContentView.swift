@@ -62,6 +62,7 @@ struct DashboardTabView: View {
     @State private var showRebootConfirm: Bool = false
     @State private var showQuickCalibrate: Bool = false
     @State private var calibrateInputGB: String = ""
+    @State private var showWebUISheet: Bool = false
 
     private var filteredDevices: [NetworkDevice] {
         service.activeRouter.devices.filter { dev in
@@ -90,13 +91,45 @@ struct DashboardTabView: View {
                     VStack(spacing: 10) {
                         // شريط حالة الاتصال إن وجد
                         if !service.statusMessage.isEmpty {
-                            HStack(spacing: 6) {
-                                Image(systemName: "info.circle.fill")
-                                    .foregroundColor(.orange)
-                                Text(service.statusMessage)
-                                    .font(.caption2)
-                                    .foregroundColor(.orange)
-                                Spacer()
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "info.circle.fill")
+                                        .foregroundColor(.orange)
+                                    Text(service.statusMessage)
+                                        .font(.caption2)
+                                        .foregroundColor(.orange)
+                                    Spacer()
+                                }
+
+                                HStack(spacing: 8) {
+                                    Button(action: {
+                                        Task { await service.runWebUIFallbackScrape() }
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "arrow.triangle.2.circlepath.doc.on.clipboard")
+                                            Text("تشغيل كشط WebUI البديل")
+                                        }
+                                        .font(.caption2.bold())
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.orange.opacity(0.25))
+                                        .foregroundColor(.orange)
+                                        .cornerRadius(6)
+                                    }
+
+                                    Button(action: { showWebUISheet = true }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "globe.americas.fill")
+                                            Text("فتح متصفح الراوتر والأزرار")
+                                        }
+                                        .font(.caption2.bold())
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.blue.opacity(0.25))
+                                        .foregroundColor(.blue)
+                                        .cornerRadius(6)
+                                    }
+                                }
                             }
                             .padding(8)
                             .background(Color(white: 0.12))
@@ -225,8 +258,13 @@ struct DashboardTabView: View {
                     }
                 }
 
-                // أزرار التحديث وإعادة تشغيل الراوتر
+                // أزرار المتصفح البديل والتحديث وإعادة تشغيل الراوتر
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button(action: { showWebUISheet = true }) {
+                        Image(systemName: "globe.americas.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.orange)
+                    }
                     Button(action: { Task { await service.loginAndRefresh() } }) {
                         Image(systemName: "arrow.clockwise")
                             .font(.subheadline)
@@ -295,6 +333,10 @@ struct DashboardTabView: View {
             // نافذة إضافة جهاز يدوياً
             .sheet(isPresented: $showAddManualDevice) {
                 AddManualDeviceSheet(service: service)
+            }
+            // نافذة متصفح WebUI وكشط البيانات والضغط على الأزرار
+            .sheet(isPresented: $showWebUISheet) {
+                RouterWebUIView(service: service)
             }
         }
     }
