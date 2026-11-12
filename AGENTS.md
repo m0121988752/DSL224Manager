@@ -1,26 +1,22 @@
-# DSL224Manager - Architecture & Agent Instructions (AGENTS.md)
+# DSL224Manager - Architecture & Multi-Platform Reference (AGENTS.md)
 
-هذا الملف مخصص للمطورين والوكلاء الذكيين (AI Agents) الذين يعملون على هذا المشروع لفهم الهيكلية والبروتوكولات والمحددات التقنية الحساسة.
+هذا الملف مخصص للوكلاء الذكيين (AI Agents) والمطورين لفهم هيكلية المنظومة عبر المنصتين (**iOS** و **Android**)، بما في ذلك البروتوكولات المشتركة، وحلول التشفير الحساسة، وروابط المستودعات.
 
 ---
 
-## 🏗️ البنية العامة للمشروع (Project Structure)
+## 🌐 منظومة المستودعات (Repositories Ecosystem)
 
-المشروع مصمم حالياً كتطبيق iOS أصيل (Native Swift / SwiftUI) مع إعداد مسبق للتوسع لمنصات أخرى (مثل Android):
+المشروع ينقسم إلى مستودعين منفصلين على حساب GitHub (`m0121988752`):
 
-```
-DSL224Manager/
-├── App/
-│   ├── DSL224ManagerApp.swift       // نقطة انطلاق التطبيق وتنسيق دورة الحياة
-│   ├── RouterModels.swift           // هياكل البيانات (RouterProfile, NetworkDevice, FirmwareType)
-│   ├── RouterService.swift          // النواة التقنية لإدارة اتصالات الراوترات والمصادقة
-│   └── Views/                       // واجهات المستخدم SwiftUI (Dashboard, Devices, Settings, Logs)
-├── Widgets/                         // ودجت iOS باستخدام WidgetKit
-├── .github/workflows/
-│   └── build.yml                    // خط أنابيب البناء السحابي التلقائي (GitHub Actions)
-├── README.md                        // دليل المستخدم والمميزات
-└── AGENTS.md                        // هذا الملف (مرجع الهيكلية والبروتوكولات)
-```
+1. **مستودع iOS الأصيل**:
+   - **الرابط**: `https://github.com/m0121988752/DSL224Manager`
+   - **التقنيات**: Swift, SwiftUI, WidgetKit (الشاشة الرئيسية وشاشة القفل), BGAppRefreshTask, CommonCrypto.
+   - **البناء التلقائي**: GitHub Actions (ينتج ملف `DSL224Manager.ipa` متوافق مع TrollStore و AltStore).
+
+2. **مستودع Android الأصيل**:
+   - **الرابط**: `https://github.com/m0121988752/DSL224Manager-Android`
+   - **التقنيات**: Kotlin, Jetpack Compose, Material 3 (Dark Theme), OkHttp, Coroutines, Java Security/Crypto.
+   - **البناء التلقائي**: GitHub Actions (ينتج ملف `app-debug.apk` كـ Artifact باسم `DSL224Manager-Android-APK`).
 
 ---
 
@@ -30,60 +26,61 @@ DSL224Manager/
 
 #### نقاط النهاية الرئيسية (Endpoints):
 - **`GET /api/webserver/SesTokInfo`**:
-  - جلب `SesInfo` (قيمة Cookie الأولي) و `TokInfo` (رمز الحماية CSRF token).
+  - جلب `SesInfo` (قيمة Cookie الأولية بصيغة `SessionID=...`) و `TokInfo` (رمز CSRF الأولي).
 - **`POST /api/user/challenge_login`**:
-  - مدخلات: `<username>`, `<firstnonce>`, `<mode>1</mode>`.
+  - مدخلات: `<username>`, `<firstnonce>` (24 إلى 32 بايت عشوائي hex), `<mode>1</mode>`.
   - مخرجات: `<salt>` (بصيغة Hex), `<servernonce>`, `<iterations>` (افتراضياً 100).
 - **`POST /api/user/authentication_login`**:
   - مدخلات: `<clientproof>`, `<finalnonce>`.
   - مخرجات: `<response>OK</response>` أو `<error><code>108901</code></error>`.
 - **`POST /api/wlan/multi-macfilter-settings`**:
-  - حظر وإلغاء حظر الأجهزة المتصلة عن طريق تزويد قائمة MAC Filter مصفوفة من `0` إلى `9`.
+  - حظر وفصل الأجهزة أو إعادتها عبر قائمة الـ MAC Filter المفهرسة من `0` إلى `9` (`WifiMacFilterStatus`: 2 للـ Blacklist، و 0 للإيقاف).
 - **`GET /api/monitoring/traffic-statistics`**:
-  - قراءة السرعات اللحظية (`CurrentDownloadRate`, `CurrentUploadRate`).
+  - السرعات اللحظية للرفع والتحميل بالكيلوبايت/ثانية.
 - **`GET /api/monitoring/month_statistics`**:
-  - قراءة الاستهلاك المباشر للشهر من الراوتر.
+  - استهلاك الباقة التراكمي المدمج في الراوتر للشهر الحالي (`CurrentMonthDownload` + `CurrentMonthUpload`).
 - **`GET /api/wlan/host-list`**:
-  - قائمة الأجهزة المتصلة بالشبكة بالـ IP و الـ MAC والاسم.
+  - قائمة الأجهزة المتصلة (`HostName`, `IpAddress`, `MacAddress`).
 
-#### ⚠️ محددات حاسمة لخوارزمية Huawei SCRAM-SHA256:
-1. **صيغة نص المصادقة**:
+#### ⚠️ الحل الدقيق لخوارزمية Huawei SCRAM-SHA256 (مستخرج ومطابق 100% لسورس كود الراوتر):
+1. **صيغة نص المصادقة (`authMsg`)**:
    ```
    authMsg = firstNonce + "," + finalNonce + "," + finalNonce
    ```
-2. **ترتيب معاملات HMAC في CryptoJS المستخدم براوتر هواوي**:
-   - `HmacSHA256(message, key)` في كود الراوتر يستقبل `saltPwd` كـ Message و `"Client Key"` كـ Key:
-     - `ClientKey = HMAC(key: "Client Key", message: saltPwd)`
-     - `ClientSig = HMAC(key: authMsg, message: StoredKey)`
-3. **ترميز `clientproof`**:
-   - يجب إرساله كـ **Hex-encoded string** (وليس Base64).
-4. **أكواد الأخطاء**:
+2. **عكس معاملات HMAC بسبب بنية مكتبة CryptoJS في راوتر هواوي**:
+   - دالة هواوي في `scram.js`:
+     ```javascript
+     clientKey: function(saltPwd) { return this.cfg.hmac(saltPwd, "Client Key"); }
+     signature: function(storedKey, authMessage) { return this.cfg.hmac(storedKey, authMessage); }
+     ```
+   - وحيث أن `HmacSHA256(message, key)` في نسختهم تستقبل `message` أولاً ثم `key`، فإن التشفير الفعلي هو:
+     - `clientKey = HMAC-SHA256(key: "Client Key", data: saltedPassword)`
+     - `storedKey = SHA256(clientKey)`
+     - `clientSig = HMAC-SHA256(key: authMsg, data: storedKey)`
+     - `clientProof = hexFromData(clientKey ^ clientSig)`
+3. **صيغة `clientproof`**:
+   - ترسل كـ **Hex-encoded string** (وليس Base64).
+4. **أكواد الاستجابة**:
    - `108901`: كلمة المرور غير صحيحة (Wrong Password).
-   - `100003`: الجلسة غير مصادق عليها أو منتهية الصلاحية (No Rights).
+   - `100003`: جلسة غير مصادق عليها أو منتهية.
 
 ---
 
 ### 2. راوتر D-Link DSL-224 (ME_1.10 Boa / Generic Realtek)
 
-#### نقاط النهاية:
-- **تسجيل الدخول**:
-  - `POST /login.cgi` أو `POST /boaform/admin/formLogin` (ببيانات `username` و `password`).
-- **قراءة البيانات**:
-  - `GET /status_traffic.html` أو `GET /tc.html`.
-  - استخراج عداد البايتات التراكمي باستخدام Regex.
-- **التحكم بالأجهزة**:
-  - `POST /form2WlanSetup.cgi` لحظر الـ MAC.
-  - `POST /tc.cgi` للتحكم في السرعات وتحديد الـ Bandwidth.
+- **تسجيل الدخول**: `POST /login.cgi` أو `POST /boaform/admin/formLogin`.
+- **قراءة العداد**: `GET /status_traffic.html` أو `GET /tc.html` واستخراج البايتات التراكمية عبر Regex.
+- **التحكم وحظر الأجهزة**: `POST /form2WlanSetup.cgi`.
+- **تحديد السرعة (Traffic Control)**: `POST /tc.cgi`.
 
 ---
 
-## ⚙️ قواعد العمل للوكلاء (Guidelines for Agents)
+## ⚙️ قواعد وإرشادات عامة للمطورين والوكلاء (Agent Rules)
 
-1. **التعامل مع جلسات الراوتر**:
-   - راوترات هواوي وD-Link تسمح بـ **جلسة مدير واحدة فقط (Single Session Admin)** في نفس الوقت.
-   - أي تسجيل دخول عبر المتصفح سيُسقط جلسة التطبيق تلقائياً.
-2. **الرموز المؤقتة (CSRF Tokens)**:
-   - كل طلب `POST` لراوتر هواوي يستهلك الـ `__RequestVerificationToken` المتاح ويتطلب قراءة الرمز الجديد من ترويسة الاستجابة `__RequestVerificationToken`.
-3. **أمن الشبكة المحلية**:
-   - الراوترات تدعم بروتوكول `HTTP` غير المشفر على المنافذ الافتراضية (`80`) داخل الشبكة المحلية (`192.168.1.1` أو `192.168.2.1`).
-   - لا تحاول استخدام `HTTPS` المباشر ما لم يتم تأكيد دعمه في المنفذ `443`.
+1. **قاعدة الجلسة الأحادية (Single-Session)**:
+   - الراوترات تسمح بمدير واحد فقط متصل. أي دخول عبر المتصفح أثناء عمل التطبيق يلغي الجلسة تلقائياً.
+2. **تحديث الرموز الأمنية (CSRF Tokens)**:
+   - كل استجابة لطلب POST تحمل رمزا جديدا في ترويسة `__RequestVerificationToken` يجب استخدامه للطلب التالي.
+3. **سلامة بناء الأندرويد**:
+   - مشروع الأندرويد يتطلب `android.useAndroidX=true` في `gradle.properties`.
+   - إعداد المستودعات يتم مركزياً في `settings.gradle.kts` عبر `pluginManagement` و `dependencyResolutionManagement`.
