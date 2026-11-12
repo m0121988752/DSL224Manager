@@ -432,9 +432,8 @@ class RouterService: ObservableObject {
         verificationTokens[r.id] = tokInfo
         addLog("📡 SesTokInfo: sesInfo=\(sesInfo.prefix(20))... tok=\(tokInfo.prefix(10))...")
 
-        // 2. بناء رسالة SCRAM الأولى (client-first-message-bare)
+        // 2. إرسال challenge_login
         let firstNonce = (0..<24).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
-        let clientFirstMessageBare = "n=\(r.username),r=\(firstNonce)"
 
         if let challengeURL = URL(string: "http://\(r.routerIP)/api/user/challenge_login") {
             var chalReq = URLRequest(url: challengeURL)
@@ -457,12 +456,11 @@ class RouterService: ObservableObject {
                 addLog("❌ فشل إرسال challenge_login", isError: true)
                 return
             }
-            addLog("📡 challenge response: \(chalXML.prefix(200))")
 
             guard let saltHex = extractXMLTag("salt", from: chalXML),
                   let serverNonce = extractXMLTag("servernonce", from: chalXML) else {
                 let errCode = extractXMLTag("code", from: chalXML) ?? "؟"
-                addLog("❌ challenge_login فشل (كود: \(errCode)): \(chalXML.prefix(100))", isError: true)
+                addLog("❌ challenge_login فشل (كود: \(errCode))", isError: true)
                 return
             }
 
@@ -476,15 +474,9 @@ class RouterService: ObservableObject {
                 }
             }
 
-            // 3. حساب SCRAM حسب RFC 5802
-            // serverFirstMessage = "r=serverNonce,s=salt,i=iterations"
-            let serverFirstMessage = "r=\(serverNonce),s=\(saltHex),i=\(iterations)"
-            // clientFinalMessageWithoutProof = "c=biws,r=serverNonce"
-            // "biws" = base64("n,,") — channel binding
-            let channelBinding = Data("n,,".utf8).base64EncodedString() // = "biws"
-            let clientFinalWithoutProof = "c=\(channelBinding),r=\(serverNonce)"
-            // authMessage = clientFirstMessageBare + "," + serverFirstMessage + "," + clientFinalWithoutProof
-            let authMessage = "\(clientFirstMessageBare),\(serverFirstMessage),\(clientFinalWithoutProof)"
+            // 3. حساب SCRAM الخاص براوترات هواوي (المطابق 100% لكود scram.js في الراوتر)
+            // هواوي تستخدم صيغة authMsg = firstNonce + "," + finalNonce + "," + finalNonce
+            let authMsg = "\(firstNonce),\(serverNonce),\(serverNonce)"
 
             guard let saltBytes = dataFromHex(saltHex),
                   let saltedPassword = pbkdf2SHA256(password: r.password, salt: saltBytes, iterations: iterations) else {
@@ -492,17 +484,15 @@ class RouterService: ObservableObject {
                 return
             }
 
-            let clientKey = hmacSHA256(key: saltedPassword, data: Data("Client Key".utf8))
+            // في مكتبة CryptoJS المستخدمة في راوتر هواوي، معامل HmacSHA256 يأتي بصيغة (message, key):
+            // scram.js يمرر: hmac(saltPwd, "Client Key") => message = saltPwd, key = "Client Key"
+            // scram.js يمرر: hmac(storedKey, authMsg) => message = storedKey, key = authMsg
+            let clientKey = hmacSHA256(key: Data("Client Key".utf8), data: saltedPassword)
             let storedKey = Data(SHA256.hash(data: clientKey))
-            let authMsgData = Data(authMessage.utf8)
-            let clientSig = hmacSHA256(key: storedKey, data: authMsgData)
-            let clientProofData = xorBytes(clientKey, clientSig)
-            let clientProof = clientProofData.base64EncodedString()
+            let clientSig = hmacSHA256(key: Data(authMsg.utf8), data: storedKey)
+            let clientProof = hexFromData(xorBytes(clientKey, clientSig))
 
-            addLog("📡 SCRAM authMsg: \(authMessage.prefix(80))...")
-            addLog("📡 clientProof(b64): \(clientProof.prefix(30))...")
-
-            // 4. إرسال authentication_login
+            // 4. إرسال authentication_login بصيغة Hex
             guard let authURL = URL(string: "http://\(r.routerIP)/api/user/authentication_login") else { return }
             var authReq = URLRequest(url: authURL)
             authReq.httpMethod = "POST"
@@ -520,7 +510,7 @@ class RouterService: ObservableObject {
 
             if let (authData, authRes) = try? await session.data(for: authReq) {
                 let authStr = String(data: authData, encoding: .utf8) ?? ""
-                addLog("📡 auth_login response: \(authStr.prefix(300))")
+                addLog("📡 auth_login response: \(authStr.trimmingCharacters(in: .whitespacesAndNewlines))")
                 if let http = authRes as? HTTPURLResponse {
                     if let c = http.allHeaderFields["Set-Cookie"] as? String {
                         let cleanC = c.components(separatedBy: ";").first?.trimmingCharacters(in: .whitespaces) ?? c
@@ -529,15 +519,15 @@ class RouterService: ObservableObject {
                     if let t = http.allHeaderFields["__RequestVerificationToken"] as? String {
                         verificationTokens[r.id] = t
                     }
-                    // اعتبار النجاح: لا يوجد error code, أو serverproof موجود
+
                     let hasError = authStr.contains("<error>") || authStr.contains("<code>")
                     let hasServerProof = authStr.contains("<serverproof>") || authStr.contains("<response>")
                     if hasServerProof || (!hasError && http.statusCode == 200) {
-                        addLog("✅ تم تسجيل الدخول لراوتر Huawei بنجاح (SCRAM-SHA256)")
+                        addLog("✅ تم تسجيل الدخول لراوتر Huawei بنجاح كمسؤول (Huawei SCRAM)")
                         return
                     } else {
                         let errCode = extractXMLTag("code", from: authStr) ?? "غير معروف"
-                        addLog("❌ فشل authentication_login (كود: \(errCode))", isError: true)
+                        addLog("❌ فشل authentication_login (كود: \(errCode)) - يرجى التأكد من كلمة المرور", isError: true)
                         return
                     }
                 }
