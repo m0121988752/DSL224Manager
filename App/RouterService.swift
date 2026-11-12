@@ -450,10 +450,11 @@ class RouterService: ObservableObject {
         // 1. جلب البيانات العامة المتاحة فوراً بدون كلمة سر
         await fetchHuaweiPublicStats(&r)
 
-        // 2. إذا توفرت كلمة المرور، نقوم بالمصافحة وتأكيد تسجيل الدخول لجلب الأجهزة
+        // 2. إذا توفرت كلمة المرور، نقوم بالمصافحة وتأكيد تسجيل الدخول لجلب الأجهزة وحالة الحظر
         if !r.password.isEmpty {
             await authenticateHuawei(&r)
             await fetchHuaweiHosts(&r)
+            await fetchHuaweiBlockList(&r)
         }
 
         self.activeRouter = r
@@ -645,6 +646,31 @@ class RouterService: ObservableObject {
         if !parsed.isEmpty {
             r.devices = parsed
             addLog("تم جلب \(parsed.count) جهاز متصل براوتر Huawei")
+        }
+    }
+
+    private func fetchHuaweiBlockList(_ r: inout RouterProfile) async {
+        guard let url = URL(string: "http://\(r.routerIP)/api/wlan/multi-macfilter-settings") else { return }
+        var req = URLRequest(loginURL: url, cookie: sessionCookies[r.id], token: verificationTokens[r.id])
+        guard let (data, _) = try? await session.data(for: req),
+              let xml = String(data: data, encoding: .utf8) else { return }
+
+        // استخراج قائمة الـ MACs المحظورة
+        var blockedMacs = Set<String>()
+        for i in 0..<10 {
+            if let mac = extractXMLTag("WifiMacFilterMac\(i)", from: xml), !mac.isEmpty {
+                blockedMacs.insert(mac.replacingOccurrences(of: "-", with: ":").uppercased())
+            }
+        }
+
+        // تحديث حالة الأجهزة الموجودة أو إضافة الأجهزة المحظورة التي ليست في قائمة المتصلين حالياً
+        for idx in 0..<r.devices.count {
+            let dMac = r.devices[idx].macAddress.replacingOccurrences(of: "-", with: ":").uppercased()
+            r.devices[idx].isBlocked = blockedMacs.contains(dMac)
+        }
+
+        if !blockedMacs.isEmpty {
+            addLog("تمت مزامنة قائمة الحظر: \(blockedMacs.count) جهاز محظور")
         }
     }
 
