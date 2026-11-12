@@ -194,6 +194,8 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
         let js = """
         (function() {
             var userSelectors = [
+                '#f_username',
+                'input[name="f_username"]',
                 'input[name*="user" i]',
                 'input[name*="login" i]',
                 'input[id*="user" i]',
@@ -204,6 +206,8 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                 'input[type="text"]'
             ];
             var passSelectors = [
+                '#f_password',
+                'input[name="f_password"]',
                 'input[type="password"]',
                 'input[name*="pass" i]',
                 'input[name*="pwd" i]',
@@ -229,8 +233,10 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                 return JSON.stringify({ attempted: false, reason: 'No login fields found' });
             }
 
-            if (userEl && "\(escapedUser)".length > 0) {
-                userEl.value = "\(escapedUser)";
+            // التأكد من ملء حقل اسم المستخدم دائماً حتى لو قام الراوتر بتفريغه
+            var userToFill = "\(escapedUser)".length > 0 ? "\(escapedUser)" : "admin";
+            if (userEl) {
+                userEl.value = userToFill;
                 userEl.dispatchEvent(new Event('input', { bubbles: true }));
                 userEl.dispatchEvent(new Event('change', { bubbles: true }));
             }
@@ -243,6 +249,9 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
 
             // البحث عن زر الإرسال أو الدخول
             var submitSelectors = [
+                '#f_submit_login',
+                '#f_submit',
+                'input[name="f_submit_login"]',
                 'input[type="submit"]',
                 'button[type="submit"]',
                 '#login_btn',
@@ -253,6 +262,8 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                 'input[value*="login" i]',
                 'input[value*="دخول" i]',
                 'input[value*="تسجيل" i]',
+                'input[value="OK"]',
+                'button:contains("OK")',
                 'button.login',
                 'a.login-btn'
             ];
@@ -306,10 +317,23 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
             var title = document.title || '';
             var currentUrl = window.location.href;
 
-            // 1. استخراج العداد التراكمي (أرقام كبيرة 7 إلى 16 خانة)
+            // 1. استخراج العداد التراكمي (أرقام كبيرة 7 إلى 16 خانة، أو محلي الاستخدام 50.8 GB)
             var foundBytes = null;
+
+            // فحص نصوص هواوي و Flybox المباشرة مثل "محلي الاستخدام 50.8 GB"
+            var huaweiUsage = bodyText.match(/محلي الاستخدام\\s*([0-9\\.]+)\\s*(GB|MB)/i) || bodyText.match(/([0-9\\.]+)\\s*GB/i);
+            if (huaweiUsage) {
+                var numH = parseFloat(huaweiUsage[1]);
+                var unitH = huaweiUsage[2].toUpperCase();
+                if (unitH.indexOf('GB') !== -1) {
+                    foundBytes = Math.round(numH * 1024 * 1024 * 1024);
+                } else {
+                    foundBytes = Math.round(numH * 1024 * 1024);
+                }
+            }
+
             var digitMatches = bodyText.match(/\\b(\\d{7,16})\\b/g);
-            if (digitMatches && digitMatches.length > 0) {
+            if (!foundBytes && digitMatches && digitMatches.length > 0) {
                 var maxVal = 0;
                 for (var i = 0; i < digitMatches.length; i++) {
                     var val = parseInt(digitMatches[i], 10);
@@ -321,7 +345,7 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                 if (maxVal > 0) { foundBytes = maxVal; }
             }
 
-            // في حال لم نجد أرقام بايتات خام، نفحص النصوص ذات الوحدات مثل "14.5 GB" أو "250 MB"
+            // في حال لم نجد أرقام بايتات خام، نفحص النصوص ذات الوحدات العامة
             if (!foundBytes) {
                 var sizeMatches = bodyText.match(/([0-9]+(?:\\.[0-9]+)?)\\s*(GB|MB|KB|Bytes|جيجابايت|ميجابايت|بايت)/i);
                 if (sizeMatches) {
@@ -340,6 +364,8 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
             // 2. استخراج السرعة اللحظية إن وجدت
             var downRate = null;
             var upRate = null;
+            var downMatch = bodyText.match(/بيانات تم تنزيلها\\s*([0-9\\.]+)\\s*(GB|MB)/i);
+            var upMatch = bodyText.match(/بيانات تم تحميلها\\s*([0-9\\.]+)\\s*(GB|MB)/i);
             var speedMatch = bodyText.match(/([0-9]+(?:\\.[0-9]+)?)\\s*(KB\\/s|Kbps|MB\\/s|Mbps)/ig);
             if (speedMatch && speedMatch.length > 0) {
                 var firstVal = parseFloat(speedMatch[0]);
@@ -352,7 +378,7 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
 
             // 3. استخراج اسم المشغل (Carrier)
             var carrier = null;
-            var carriers = ['Orange', 'Vodafone', 'Etisalat', 'WE', 'Telecom Egypt', 'Zain', 'STC', 'Mobily', 'Ooredoo'];
+            var carriers = ['Orange EG', 'Orange', 'Vodafone', 'Etisalat', 'WE', 'Telecom Egypt', 'Zain', 'STC', 'Mobily', 'Ooredoo'];
             for (var c = 0; c < carriers.length; c++) {
                 if (bodyText.indexOf(carriers[c]) !== -1) {
                     carrier = carriers[c];
@@ -360,15 +386,16 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                 }
             }
 
-            // 4. استخراج الأجهزة المتصلة من جداول الصفحة
+            // 4. استخراج الأجهزة المتصلة من جداول وحاويات الصفحة
             var devices = [];
             var seenMacs = {};
             var macRegex = /([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})/;
             var ipRegex = /\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b/;
 
-            var rows = document.querySelectorAll('tr, .device-item, .host-item, li');
-            rows.forEach(function(row) {
-                var rowText = row.innerText || '';
+            var containers = document.querySelectorAll('tr, .device-item, .host-item, li, div.devicelist, div');
+            containers.forEach(function(el) {
+                if (el.children.length > 15) return;
+                var rowText = el.innerText || '';
                 var macMatch = rowText.match(macRegex);
                 if (macMatch) {
                     var mac = macMatch[0].toUpperCase().replace(/-/g, ':');
@@ -377,13 +404,12 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                         var ipMatch = rowText.match(ipRegex);
                         var ip = ipMatch ? ipMatch[0] : '192.168.1.100';
 
-                        // استخراج اسم الجهاز إن أمكن من الخلايا المجاورة
+                        var lines = rowText.split('\\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
                         var hostname = '';
-                        var cells = row.querySelectorAll('td, span, div');
-                        for (var ci = 0; ci < cells.length; ci++) {
-                            var cellTxt = (cells[ci].innerText || '').trim();
-                            if (cellTxt && !cellTxt.match(macRegex) && !cellTxt.match(ipRegex) && cellTxt.length < 30 && cellTxt.length > 1) {
-                                hostname = cellTxt;
+                        for (var li = 0; li < lines.length; li++) {
+                            var line = lines[li];
+                            if (!line.match(macRegex) && !line.match(ipRegex) && line.indexOf('MAC') === -1 && line.indexOf('IPv') === -1 && line.indexOf('الإيجار') === -1 && line.length < 35 && line.length > 1) {
+                                hostname = line;
                                 break;
                             }
                         }
@@ -522,6 +548,11 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                     var el = candidates[i];
                     var t = (el.innerText || el.textContent || el.value || el.id || el.getAttribute('name') || '').toLowerCase();
                     if (action.indexOf('reboot') !== -1 || action.indexOf('إعادة') !== -1) {
+                        var specificReboot = document.querySelector('#reboot_apply_button, #menu_reboot, #btn_reboot, #reboot, input[value*="Reboot" i], input[value*="إعادة" i]');
+                        if (specificReboot) {
+                            btn = specificReboot;
+                            break;
+                        }
                         if (t.indexOf('reboot') !== -1 || t.indexOf('restart') !== -1 || t.indexOf('إعادة') !== -1) {
                             btn = el;
                             break;
