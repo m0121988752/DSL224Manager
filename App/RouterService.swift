@@ -418,16 +418,27 @@ class RouterService: ObservableObject {
 
     // MARK: - جلب رمز حماية جديد لراوترات Huawei (Single-use Token Refresher)
     private func getFreshHuaweiToken(routerIP: String) async -> String? {
-        // 1. فحص endpoint الخاص بالـ token أولاً
-        if let url = URL(string: "http://\(routerIP)/api/webserver/token"),
-           let (data, res) = try? await session.data(from: url),
-           let xml = String(data: data, encoding: .utf8),
-           let tok = extractXMLTag("token", from: xml) {
-            if let http = res as? HTTPURLResponse, let cookie = http.allHeaderFields["Set-Cookie"] as? String {
-                sessionCookies[activeRouterID] = cookie
+        let cookie = sessionCookies[activeRouterID]
+
+        // 1. فحص endpoint الخاص بالـ token مع إرسال Cookie الجلسة النشطة
+        if let url = URL(string: "http://\(routerIP)/api/webserver/token") {
+            var req = URLRequest(url: url)
+            if let c = cookie {
+                req.setValue(c.contains("SessionID=") ? c : "SessionID=\(c)", forHTTPHeaderField: "Cookie")
             }
-            return tok
+            if let (data, res) = try? await session.data(for: req),
+               let xml = String(data: data, encoding: .utf8),
+               let rawTok = extractXMLTag("token", from: xml), !rawTok.isEmpty {
+                if let http = res as? HTTPURLResponse, let newCookie = http.allHeaderFields["Set-Cookie"] as? String {
+                    sessionCookies[activeRouterID] = newCookie
+                }
+                // في راوترات هواوي، الرمز المستخدم في الطلبات هو آخر 32 خانة token.substr(32)
+                let finalTok = rawTok.count >= 64 ? String(rawTok.suffix(32)) : rawTok
+                verificationTokens[activeRouterID] = finalTok
+                return finalTok
+            }
         }
+
         // 2. استخدام SesTokInfo كبديل
         if let url = URL(string: "http://\(routerIP)/api/webserver/SesTokInfo"),
            let (data, res) = try? await session.data(from: url),
@@ -436,12 +447,13 @@ class RouterService: ObservableObject {
             if let ses = extractXMLTag("SesInfo", from: xml) {
                 sessionCookies[activeRouterID] = ses
             }
-            if let http = res as? HTTPURLResponse, let cookie = http.allHeaderFields["Set-Cookie"] as? String {
-                sessionCookies[activeRouterID] = cookie
+            if let http = res as? HTTPURLResponse, let newCookie = http.allHeaderFields["Set-Cookie"] as? String {
+                sessionCookies[activeRouterID] = newCookie
             }
+            verificationTokens[activeRouterID] = tok
             return tok
         }
-        return nil
+        return verificationTokens[activeRouterID]
     }
 
     // MARK: - منطق راوترات Huawei (B311-221 HiLink API)
