@@ -148,137 +148,14 @@ struct DashboardTabView: View {
                             }
                         )
 
-                        // شريط الإجراءات السريعة (Quick Actions Bar)
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                QuickActionChip(icon: "globe.americas.fill", title: "متصفح الراوتر", color: .blue) {
-                                    showWebUISheet = true
-                                }
-                                QuickActionChip(icon: "wand.and.stars", title: "معالج الإعداد", color: .purple) {
-                                    showSetupWizard = true
-                                }
-                                QuickActionChip(icon: "square.grid.2x2.fill", title: "قوالب الراوترات", color: .cyan) {
-                                    showPresetsSheet = true
-                                }
-                                QuickActionChip(icon: "arrow.clockwise", title: "تحديث", color: .green) {
-                                    Task { _ = await service.loginAndRefresh() }
-                                }
-                                QuickActionChip(icon: "power", title: "إعادة التشغيل", color: .red) {
-                                    showRebootConfirm = true
-                                }
-                            }
-                            .padding(.vertical, 2)
-                        }
+                        // شريط الإجراءات السريعة
+                        quickActionsBar
 
                         // شريط البحث والفلترة
-                        VStack(spacing: 8) {
-                            HStack(spacing: 8) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "magnifyingglass")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                    TextField("ابحث باسم الجهاز أو IP أو MAC...", text: $searchText)
-                                        .font(.caption)
-                                        .foregroundColor(.white)
-                                }
-                                .padding(8)
-                                .background(Color(white: 0.11))
-                                .cornerRadius(8)
-
-                                Button(action: { showAddManualDevice = true }) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "plus")
-                                        Text("إضافة")
-                                    }
-                                    .font(.caption.bold())
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 8)
-                                    .background(Color(white: 0.15))
-                                    .foregroundColor(.white)
-                                    .cornerRadius(8)
-                                }
-                            }
-
-                            Picker("فلترة", selection: $filterMode) {
-                                ForEach(DeviceFilterMode.allCases) { mode in
-                                    Text(mode.rawValue).tag(mode)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                        }
+                        searchAndFilterBar
 
                         // قائمة الأجهزة
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("الأجهزة (\(filteredDevices.count))")
-                                    .font(.caption.bold())
-                                    .foregroundColor(.gray)
-                                Spacer()
-                                if service.isLoading {
-                                    ProgressView().scaleEffect(0.75)
-                                }
-                            }
-                            .padding(.horizontal, 4)
-
-                            if filteredDevices.isEmpty {
-                                VStack(spacing: 12) {
-                                    Image(systemName: "wifi.slash")
-                                        .font(.system(size: 32))
-                                        .foregroundColor(.gray.opacity(0.6))
-                                    Text("لا توجد أجهزة مسجلة أو متصلة حالياً")
-                                        .font(.subheadline.bold())
-                                        .foregroundColor(.gray)
-                                    Text("تأكد من كتابة كلمة المرور للراوتر والضغط على تحديث")
-                                        .font(.caption2)
-                                        .foregroundColor(.gray.opacity(0.8))
-
-                                    HStack(spacing: 10) {
-                                        Button(action: { Task { _ = await service.loginAndRefresh() } }) {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "arrow.clockwise")
-                                                Text("تحديث وقراءة الأجهزة")
-                                            }
-                                            .font(.caption.bold())
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                            .background(Color.blue.opacity(0.2))
-                                            .foregroundColor(.blue)
-                                            .cornerRadius(8)
-                                        }
-
-                                        Button(action: { showSetupWizard = true }) {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "wand.and.stars")
-                                                Text("معالج الإعداد")
-                                            }
-                                            .font(.caption.bold())
-                                            .padding(.horizontal, 12)
-                                            .padding(.vertical, 8)
-                                            .background(Color.purple.opacity(0.2))
-                                            .foregroundColor(.purple)
-                                            .cornerRadius(8)
-                                        }
-                                    }
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 24)
-                            } else {
-                                ForEach(filteredDevices) { device in
-                                    DeviceControlRow(
-                                        device: device,
-                                        service: service,
-                                        onRename: {
-                                            deviceToRename = device
-                                            newNameInput = device.displayName
-                                        },
-                                        onCustomSpeed: {
-                                            deviceForCustomSpeed = device
-                                            customSpeedInput = "\(max(256, device.currentSpeedKbps))"
-                                        }
-                                    )
-                                }
-                            }
-                        }
+                        devicesSectionView
                     }
                     .padding(12)
                 }
@@ -407,7 +284,7 @@ struct DashboardTabView: View {
             }
             // نافذة قوالب الراوترات الجاهزة
             .sheet(isPresented: $showPresetsSheet) {
-                RouterPresetsSheet(service: service)
+                PresetsLibrarySheet(service: service)
             }
             .onAppear {
                 if !hasCompletedWizard {
@@ -415,6 +292,153 @@ struct DashboardTabView: View {
                 }
             }
         }
+    }
+
+    // MARK: - شريط الإجراءات السريعة
+    @ViewBuilder
+    private var quickActionsBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                QuickActionChip(icon: "globe.americas.fill", title: "متصفح الراوتر", color: .blue) {
+                    showWebUISheet = true
+                }
+                QuickActionChip(icon: "wand.and.stars", title: "معالج الإعداد", color: .purple) {
+                    showSetupWizard = true
+                }
+                QuickActionChip(icon: "square.grid.2x2.fill", title: "قوالب الراوترات", color: .cyan) {
+                    showPresetsSheet = true
+                }
+                QuickActionChip(icon: "arrow.clockwise", title: "تحديث", color: .green) {
+                    Task { _ = await service.loginAndRefresh() }
+                }
+                QuickActionChip(icon: "power", title: "إعادة التشغيل", color: .red) {
+                    showRebootConfirm = true
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    // MARK: - شريط البحث والفلترة
+    @ViewBuilder
+    private var searchAndFilterBar: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    TextField("ابحث باسم الجهاز أو IP أو MAC...", text: $searchText)
+                        .font(.caption)
+                        .foregroundColor(.white)
+                }
+                .padding(8)
+                .background(Color(white: 0.11))
+                .cornerRadius(8)
+
+                Button(action: { showAddManualDevice = true }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                        Text("إضافة")
+                    }
+                    .font(.caption.bold())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color(white: 0.15))
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
+                }
+            }
+
+            Picker("فلترة", selection: $filterMode) {
+                ForEach(DeviceFilterMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    // MARK: - قائمة وبطاقات الأجهزة
+    @ViewBuilder
+    private var devicesSectionView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("الأجهزة (\(filteredDevices.count))")
+                    .font(.caption.bold())
+                    .foregroundColor(.gray)
+                Spacer()
+                if service.isLoading {
+                    ProgressView().scaleEffect(0.75)
+                }
+            }
+            .padding(.horizontal, 4)
+
+            if filteredDevices.isEmpty {
+                emptyDevicesView
+            } else {
+                ForEach(filteredDevices) { device in
+                    DeviceControlRow(
+                        device: device,
+                        service: service,
+                        onRename: {
+                            deviceToRename = device
+                            newNameInput = device.displayName
+                        },
+                        onCustomSpeed: {
+                            deviceForCustomSpeed = device
+                            customSpeedInput = "\(max(256, device.currentSpeedKbps))"
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - حالة عدم وجود أجهزة
+    @ViewBuilder
+    private var emptyDevicesView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "wifi.slash")
+                .font(.system(size: 32))
+                .foregroundColor(.gray.opacity(0.6))
+            Text("لا توجد أجهزة مسجلة أو متصلة حالياً")
+                .font(.subheadline.bold())
+                .foregroundColor(.gray)
+            Text("تأكد من كتابة كلمة المرور للراوتر والضغط على تحديث")
+                .font(.caption2)
+                .foregroundColor(.gray.opacity(0.8))
+
+            HStack(spacing: 10) {
+                Button(action: { Task { _ = await service.loginAndRefresh() } }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("تحديث وقراءة الأجهزة")
+                    }
+                    .font(.caption.bold())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.blue.opacity(0.2))
+                    .foregroundColor(.blue)
+                    .cornerRadius(8)
+                }
+
+                Button(action: { showSetupWizard = true }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "wand.and.stars")
+                        Text("معالج الإعداد")
+                    }
+                    .font(.caption.bold())
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.purple.opacity(0.2))
+                    .foregroundColor(.purple)
+                    .cornerRadius(8)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
     }
 }
 
