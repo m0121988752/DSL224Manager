@@ -643,7 +643,7 @@ struct SetupWizardView: View {
                     var req = URLRequest(url: url)
                     req.timeoutInterval = 1.8
                     if let (_, res) = try? await ephemeralSession.data(for: req),
-                       let http = res as? HTTPURLResponse, http.statusCode in 200...404 {
+                       let http = res as? HTTPURLResponse, (200...404).contains(http.statusCode) {
                         let matched = RouterPresetsManager.builtinPresets.first { $0.id == "zte_h168n" }
                         detected = DetectedRouterResult(
                             ip: ip,
@@ -661,7 +661,7 @@ struct SetupWizardView: View {
                     var req = URLRequest(url: url)
                     req.timeoutInterval = 1.8
                     if let (data, res) = try? await ephemeralSession.data(for: req),
-                       let http = res as? HTTPURLResponse, http.statusCode in 200...399,
+                       let http = res as? HTTPURLResponse, (200...399).contains(http.statusCode),
                        let str = String(data: data, encoding: .utf8) {
                         let lower = str.lowercased()
                         if lower.contains("huawei") || lower.contains("hilink") {
