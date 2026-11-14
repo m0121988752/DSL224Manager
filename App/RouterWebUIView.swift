@@ -43,6 +43,7 @@ struct RouterWebUIView: View {
     @State private var isPickerModeActive: Bool = false
     @State private var pickedElement: PickedElementInfo? = nil
     @State private var showAssignmentSheet: Bool = false
+    @State private var showPresetsSheet: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -183,6 +184,20 @@ struct RouterWebUIView: View {
                                 .cornerRadius(6)
                             }
 
+                            // زر قوالب الراوترات الجاهزة
+                            Button(action: { showPresetsSheet = true }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "square.grid.2x2")
+                                    Text("قوالب 📋")
+                                }
+                                .font(.caption.bold())
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.orange.opacity(0.3))
+                                .foregroundColor(.orange)
+                                .cornerRadius(6)
+                            }
+
                             // زر مخصص / JS
                             Button(action: { showCustomScriptSheet = true }) {
                                 HStack(spacing: 4) {
@@ -317,6 +332,12 @@ struct RouterWebUIView: View {
                     }
                 )
             }
+            .sheet(isPresented: $showPresetsSheet) {
+                PresetsLibrarySheet(service: service) {
+                    showPresetsSheet = false
+                    lastActionToast = "تم تطبيق قالب الراوتر بنجاح ✅"
+                }
+            }
             .sheet(isPresented: $showAssignmentSheet, onDismiss: {
                 if isPickerModeActive && pickedElement == nil {
                     isPickerModeActive = false
@@ -329,6 +350,9 @@ struct RouterWebUIView: View {
                         info: info,
                         onAssign: { action in
                             handleElementAssignment(info: info, action: action)
+                        },
+                        onTestClick: {
+                            performTestClickOnElement(info: info)
                         },
                         onCancelAndExitPicker: {
                             isPickerModeActive = false
@@ -421,6 +445,27 @@ struct RouterWebUIView: View {
             lastActionToast = "جارِ الضغط على المحدد: \(selector)..."
             let res = await fallbackService.pressButton(selector: selector, text: nil, semanticAction: nil, on: webView)
             lastActionToast = res.message
+        }
+    }
+
+    private func performTestClickOnElement(info: PickedElementInfo) {
+        let cleanSel = info.selector.replacingOccurrences(of: "'", with: "\\'")
+        let js = """
+        (function() {
+            var el = document.querySelector('\(cleanSel)');
+            if (el) {
+                el.click();
+                return 'clicked';
+            }
+            return 'not_found';
+        })();
+        """
+        webView.evaluateJavaScript(js) { res, _ in
+            if let str = res as? String, str == "clicked" {
+                lastActionToast = "✅ تم اختبار النقر على العنصر في الصفحة بنجاح"
+            } else {
+                lastActionToast = "⚠️ تم إرسال أمر النقر للعنصر"
+            }
         }
     }
 
@@ -1156,6 +1201,7 @@ enum SuggestedElementType {
 struct ElementAssignmentSheet: View {
     let info: PickedElementInfo
     var onAssign: (ElementAssignmentAction) -> Void
+    var onTestClick: (() -> Void)? = nil
     var onCancelAndExitPicker: () -> Void
     var onContinuePicking: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -1216,10 +1262,41 @@ struct ElementAssignmentSheet: View {
                                     .foregroundColor(.gray)
                                     .lineLimit(2)
                             }
+
+                            // فحص ومعاينة حية للمحتوى (Live Instant Preview)
+                            if let liveNotice = computeLivePreview(info: info) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "sparkles")
+                                        .foregroundColor(.green)
+                                    Text(liveNotice)
+                                        .font(.caption2.bold())
+                                        .foregroundColor(.green)
+                                }
+                                .padding(8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.green.opacity(0.12))
+                                .cornerRadius(6)
+                            }
                         }
                         .padding(14)
                         .background(Color(white: 0.12))
                         .cornerRadius(10)
+
+                        // زر اختبار النقر الحي المباشر (Instant Test Click)
+                        if onTestClick != nil {
+                            Button(action: { onTestClick?() }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "bolt.fill")
+                                    Text("اختبار النقر المباشر على هذا العنصر (Test Click)")
+                                }
+                                .font(.caption.bold())
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(Color.yellow.opacity(0.18))
+                                .foregroundColor(.yellow)
+                                .cornerRadius(8)
+                            }
+                        }
 
                         Text("اختر كيف ترغب في تعيين هذا العنصر في راوترك:")
                             .font(.caption.bold())
@@ -1362,6 +1439,38 @@ struct ElementAssignmentSheet: View {
             }
         }
         .environment(\.layoutDirection, .rightToLeft)
+    }
+
+    private func computeLivePreview(info: PickedElementInfo) -> String? {
+        let text = info.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let val = info.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let combined = "\(text) \(val)"
+
+        // فحص وجود أرقام استهلاك ووحدات
+        let pattern = #"([0-9]+(?:\.[0-9]+)?)\s*(GB|MB|KB|Bytes|جيجا|ميجا|بايت)"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+           let match = regex.firstMatch(in: combined, range: NSRange(combined.startIndex..., in: combined)) {
+            if let r = Range(match.range, in: combined) {
+                return "معاينة حية: سيقرأ التطبيق الاستهلاك بنجاح (\(combined[r])) ✅"
+            }
+        }
+
+        // فحص أرقام بايتات كبيرة (WAN Bytes)
+        let bytePattern = #"\b(\d{7,16})\b"#
+        if let regex = try? NSRegularExpression(pattern: bytePattern),
+           let match = regex.firstMatch(in: combined, range: NSRange(combined.startIndex..., in: combined)) {
+            if let r = Range(match.range, in: combined), let num = UInt64(combined[r]), num > 1_000_000 {
+                let gb = Double(num) / (1024.0 * 1024.0 * 1024.0)
+                return "معاينة حية: سيقرأ العداد التراكمي: \(String(format: "%.2f", gb)) GB (\(num) بايت) ✅"
+            }
+        }
+
+        // فحص جدول أجهزة
+        if info.tag.lowercased() == "table" || info.tag.lowercased() == "tbody" || info.tag.lowercased() == "tr" || combined.lowercased().contains("mac") || combined.lowercased().contains("ip") {
+            return "معاينة حية: تم التعرف على هيكل جدول الأجهزة المتصلة ✅"
+        }
+
+        return nil
     }
 }
 

@@ -202,29 +202,84 @@ struct RouterEditorSheet: View {
     @State private var customUsernameSelector: String = ""
     @State private var customPasswordSelector: String = ""
     @State private var customLoginButtonSelector: String = ""
+    @State private var showPresetsLibrarySheet: Bool = false
+    @State private var presetMessage: String = ""
 
     var body: some View {
         NavigationStack {
             Form {
-                if existingRouter == nil {
-                    Section("قوالب سريعة جاهزة") {
-                        HStack(spacing: 8) {
-                            Button("Huawei B311 (4G)") {
-                                name = "راوتر 4G (B311)"
-                                ip = "192.168.1.1"
-                                username = "admin"
-                                firmware = .huaweiB311
-                            }
-                            .buttonStyle(.bordered)
+                Section("قوالب الراوترات الجاهزة والمشاركة") {
+                    Button(action: { showPresetsLibrarySheet = true }) {
+                        Label("تصفح مكتبة القوالب الجاهزة (6 راوترات معتمدة)", systemImage: "sparkles.rectangle.stack.fill")
+                            .font(.body.bold())
+                            .foregroundColor(.blue)
+                    }
 
-                            Button("D-Link (DSL-224)") {
-                                name = "راوتر D-Link"
-                                ip = "192.168.2.1"
-                                username = "admin"
-                                firmware = .me110Boa
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            let tempProfile = RouterProfile(
+                                name: name.isEmpty ? "قالب مخصص" : name,
+                                routerIP: ip,
+                                username: username,
+                                password: password,
+                                firmware: firmware,
+                                webUIPath: webUIPath,
+                                customUsageSelector: customUsageSelector,
+                                customUsageRegex: customUsageRegex,
+                                customDeviceTableSelector: customDeviceTableSelector,
+                                customRebootButtonSelector: customRebootButtonSelector,
+                                customUsernameSelector: customUsernameSelector,
+                                customPasswordSelector: customPasswordSelector,
+                                customLoginButtonSelector: customLoginButtonSelector
+                            )
+                            let json = RouterPresetsManager.exportTemplate(from: tempProfile)
+                            UIPasteboard.general.string = json
+                            presetMessage = "تم نسخ القالب للحافظة بدون كلمة السر! 📋"
+                        }) {
+                            HStack {
+                                Image(systemName: "square.and.arrow.up")
+                                Text("تصدير كقالب")
                             }
-                            .buttonStyle(.bordered)
+                            .font(.caption.bold())
                         }
+
+                        Spacer()
+
+                        Button(action: {
+                            if let clip = UIPasteboard.general.string, !clip.isEmpty {
+                                var temp = RouterProfile(name: "", routerIP: "", username: "", password: "", firmware: .genericRealtek)
+                                if RouterPresetsManager.importTemplate(from: clip, into: &temp) {
+                                    if !temp.name.isEmpty { name = temp.name }
+                                    if !temp.routerIP.isEmpty { ip = temp.routerIP }
+                                    firmware = temp.firmware
+                                    webUIPath = temp.webUIPath
+                                    customUsageSelector = temp.customUsageSelector
+                                    customUsageRegex = temp.customUsageRegex
+                                    customDeviceTableSelector = temp.customDeviceTableSelector
+                                    customRebootButtonSelector = temp.customRebootButtonSelector
+                                    customUsernameSelector = temp.customUsernameSelector
+                                    customPasswordSelector = temp.customPasswordSelector
+                                    customLoginButtonSelector = temp.customLoginButtonSelector
+                                    presetMessage = "تم استيراد القالب وتطبيقه على الحقول بنجاح! ✅"
+                                } else {
+                                    presetMessage = "النص في الحافظة ليس قالب راوتر صالحاً ⚠️"
+                                }
+                            } else {
+                                presetMessage = "الحافظة فارغة! 📋"
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "square.and.arrow.down")
+                                Text("استيراد من الحافظة")
+                            }
+                            .font(.caption.bold())
+                        }
+                    }
+
+                    if !presetMessage.isEmpty {
+                        Text(presetMessage)
+                            .font(.caption2)
+                            .foregroundColor(.green)
                     }
                 }
 
@@ -339,6 +394,22 @@ struct RouterEditorSheet: View {
                         dismiss()
                     }
                 }
+            }
+            .sheet(isPresented: $showPresetsLibrarySheet) {
+                PresetsLibrarySheet(service: service, onSelectPreset: { preset in
+                    name = preset.name
+                    ip = preset.defaultIP
+                    firmware = preset.firmware
+                    webUIPath = preset.webUIPath
+                    customUsageSelector = preset.customUsageSelector
+                    customUsageRegex = preset.customUsageRegex
+                    customDeviceTableSelector = preset.customDeviceTableSelector
+                    customRebootButtonSelector = preset.customRebootButtonSelector
+                    customUsernameSelector = preset.customUsernameSelector
+                    customPasswordSelector = preset.customPasswordSelector
+                    customLoginButtonSelector = preset.customLoginButtonSelector
+                    presetMessage = "تم تطبيق قالب [\(preset.name)] بنجاح! ✅"
+                })
             }
             .onAppear {
                 if let r = existingRouter {
@@ -515,6 +586,7 @@ struct FullSettingsTabView: View {
     @State private var backupText: String = ""
     @State private var copiedAutomationMsg: Bool = false
     @State private var showWebUIHub: Bool = false
+    @State private var showPresetsSheet: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -716,7 +788,11 @@ struct FullSettingsTabView: View {
                 }
 
                 // 5. النسخ الاحتياطي والاستعادة
-                Section("النسخ الاحتياطي والاستعادة") {
+                Section("النسخ الاحتياطي ومكتبة القوالب") {
+                    Button(action: { showPresetsSheet = true }) {
+                        Label("مكتبة قوالب الراوترات الجاهزة والمشاركة (Presets)", systemImage: "sparkles.rectangle.stack.fill")
+                    }
+
                     Button(action: {
                         backupText = service.exportBackupJSON()
                         showBackupSheet = true
@@ -782,6 +858,9 @@ struct FullSettingsTabView: View {
             }
             .sheet(isPresented: $showBackupSheet) {
                 BackupRestoreSheet(service: service, jsonText: $backupText)
+            }
+            .sheet(isPresented: $showPresetsSheet) {
+                PresetsLibrarySheet(service: service)
             }
         }
     }
