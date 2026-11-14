@@ -106,6 +106,18 @@
        - `customUsageSelector`, `customUsageRegex`, `customUsageUnit`
        - `customDeviceTableSelector`, `customRebootButtonSelector`
        - `customUsernameSelector`, `customPasswordSelector`, `customLoginButtonSelector`
+  5. **مكتبة قوالب الراوترات الجاهزة ومشاركتها الآمنة (Router Presets & Template Sharing)**:
+     - توفير 6 قوالب جاهزة ومعتمدة مسبقاً لأشهر راوترات مصر والشرق الأوسط:
+       - **D-Link DSL-224** (ME_1.10 Boa)
+       - **ZTE ZXHN H168N / H188A** (VDSL الأكثر انتشاراً لـ WE وفودافون وأورنج)
+       - **Huawei B311-221** (HiLink 4G Flybox)
+       - **Vodafone VDSL** (H300s / DG8045)
+       - **TP-Link Archer / VR600** (VDSL & 4G)
+       - **Orange Home 4G Flybox** (MF283+)
+     - تصدير واستيراد القوالب بضغطة زر كملفات JSON عبر الحافظة (Clipboard) مع **تجريد وحذف كلمة المرور والبيانات الحساسة تماماً** لضمان الخصوصية عند المشاركة بين المستخدمين عبر المنصتين (iOS و Android).
+  6. **المعاينة الفورية الذكية واختبار النقر المباشر (Live Instant Preview & Test Click)**:
+     - شارة فحص فورية في نافذة تعيين العنصر تحسب القيمة المستخرجة لحظياً (الجيجابايت أو عداد البايتات أو جدول الأجهزة).
+     - زر `⚡ اختبار النقر المباشر (Test Click)` لتشغيل كود المحاكاة مباشرة في المتصفح وإبراز العنصر بلون أحمر والتأكد من استجابته قبل اعتماده.
 
 ---
 
