@@ -334,6 +334,28 @@ class RouterService: ObservableObject {
         return success
     }
 
+    /// اختبار الاتصال وتسجيل الدخول ببيانات الاعتماد للراوتر
+    func testRouterConnection(profile: RouterProfile) async -> (success: Bool, message: String) {
+        if profile.firmware == .huaweiB311 {
+            if profile.password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return (false, "⚠️ يرجى إدخال كلمة المرور أولاً")
+            }
+            let ok = await loginAndRefreshHuawei(router: profile)
+            if ok {
+                return (true, "✅ تم تسجيل الدخول لراوتر هواوي بنجاح!")
+            } else {
+                return (false, "❌ تعذر تسجيل الدخول لراوتر هواوي، تحقق من كلمة المرور.")
+            }
+        } else {
+            let ok = await loginAndRefreshDLink(router: profile)
+            if ok {
+                return (true, "✅ تم تسجيل الدخول لراوتر D-Link بنجاح!")
+            } else {
+                return (false, "❌ تعذر الاتصال بـ D-Link (\(profile.routerIP))")
+            }
+        }
+    }
+
     // MARK: - كشط واجهة الراوتر عبر WebUI Fallback وتطبيق النتائج
     func runWebUIFallbackScrape() async -> Bool {
         let r = activeRouter

@@ -294,6 +294,24 @@ struct RouterProfile: Identifiable, Codable, Hashable {
             return String(format: "⬇ %.0f KB/s • ⬆ %.0f KB/s", down, up)
         }
     }
+
+    var downloadSpeedFormatted: String {
+        let down = liveDownloadRateKbps ?? 0.0
+        if down >= 1024 {
+            return String(format: "%.1f MB/s", down / 1024.0)
+        } else {
+            return String(format: "%.0f KB/s", down)
+        }
+    }
+
+    var uploadSpeedFormatted: String {
+        let up = liveUploadRateKbps ?? 0.0
+        if up >= 1024 {
+            return String(format: "%.1f MB/s", up / 1024.0)
+        } else {
+            return String(format: "%.0f KB/s", up)
+        }
+    }
 }
 
 // MARK: - نموذج سجل العمليات (Logs)

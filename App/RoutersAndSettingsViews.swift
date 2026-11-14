@@ -587,10 +587,39 @@ struct FullSettingsTabView: View {
     @State private var copiedAutomationMsg: Bool = false
     @State private var showWebUIHub: Bool = false
     @State private var showPresetsSheet: Bool = false
+    @State private var showSetupWizard: Bool = false
 
     var body: some View {
         NavigationStack {
             Form {
+                // معالج الإعداد الذكي
+                Section("المعالج والإعداد الذكي") {
+                    Button(action: { showSetupWizard = true }) {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.purple.opacity(0.2))
+                                    .frame(width: 36, height: 36)
+                                Image(systemName: "wand.and.stars")
+                                    .foregroundColor(.purple)
+                                    .font(.headline)
+                            }
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("تشغيل معالج الإعداد الذكي (Setup Wizard)")
+                                    .font(.subheadline.bold())
+                                    .foregroundColor(.white)
+                                Text("كشف تلقائي لطراز الراوتر وضبط بيانات الدخول والباقة")
+                                    .font(.caption2)
+                                    .foregroundColor(.gray)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.left")
+                                .font(.caption2.bold())
+                                .foregroundColor(.gray)
+                        }
+                    }
+                }
+
                 // 1. إعدادات الراوتر النشط
                 Section("الراوتر النشط (\(service.activeRouter.name))") {
                     HStack {
@@ -861,6 +890,11 @@ struct FullSettingsTabView: View {
             }
             .sheet(isPresented: $showPresetsSheet) {
                 PresetsLibrarySheet(service: service)
+            }
+            .sheet(isPresented: $showSetupWizard) {
+                SetupWizardView(service: service) {
+                    showSetupWizard = false
+                }
             }
         }
     }

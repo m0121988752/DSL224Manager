@@ -63,6 +63,9 @@ struct DashboardTabView: View {
     @State private var showQuickCalibrate: Bool = false
     @State private var calibrateInputGB: String = ""
     @State private var showWebUISheet: Bool = false
+    @AppStorage("hasCompletedWizard") private var hasCompletedWizard: Bool = false
+    @State private var showSetupWizard: Bool = false
+    @State private var showPresetsSheet: Bool = false
 
     private var filteredDevices: [NetworkDevice] {
         service.activeRouter.devices.filter { dev in
@@ -145,6 +148,28 @@ struct DashboardTabView: View {
                             }
                         )
 
+                        // شريط الإجراءات السريعة (Quick Actions Bar)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                QuickActionChip(icon: "globe.americas.fill", title: "متصفح الراوتر", color: .blue) {
+                                    showWebUISheet = true
+                                }
+                                QuickActionChip(icon: "wand.and.stars", title: "معالج الإعداد", color: .purple) {
+                                    showSetupWizard = true
+                                }
+                                QuickActionChip(icon: "square.grid.2x2.fill", title: "قوالب الراوترات", color: .cyan) {
+                                    showPresetsSheet = true
+                                }
+                                QuickActionChip(icon: "arrow.clockwise", title: "تحديث", color: .green) {
+                                    Task { _ = await service.loginAndRefresh() }
+                                }
+                                QuickActionChip(icon: "power", title: "إعادة التشغيل", color: .red) {
+                                    showRebootConfirm = true
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+
                         // شريط البحث والفلترة
                         VStack(spacing: 8) {
                             HStack(spacing: 8) {
@@ -196,11 +221,47 @@ struct DashboardTabView: View {
                             .padding(.horizontal, 4)
 
                             if filteredDevices.isEmpty {
-                                Text("لا توجد أجهزة مطابقة للفلتر الحالي")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 24)
+                                VStack(spacing: 12) {
+                                    Image(systemName: "wifi.slash")
+                                        .font(.system(size: 32))
+                                        .foregroundColor(.gray.opacity(0.6))
+                                    Text("لا توجد أجهزة مسجلة أو متصلة حالياً")
+                                        .font(.subheadline.bold())
+                                        .foregroundColor(.gray)
+                                    Text("تأكد من كتابة كلمة المرور للراوتر والضغط على تحديث")
+                                        .font(.caption2)
+                                        .foregroundColor(.gray.opacity(0.8))
+
+                                    HStack(spacing: 10) {
+                                        Button(action: { Task { _ = await service.loginAndRefresh() } }) {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "arrow.clockwise")
+                                                Text("تحديث وقراءة الأجهزة")
+                                            }
+                                            .font(.caption.bold())
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(Color.blue.opacity(0.2))
+                                            .foregroundColor(.blue)
+                                            .cornerRadius(8)
+                                        }
+
+                                        Button(action: { showSetupWizard = true }) {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "wand.and.stars")
+                                                Text("معالج الإعداد")
+                                            }
+                                            .font(.caption.bold())
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(Color.purple.opacity(0.2))
+                                            .foregroundColor(.purple)
+                                            .cornerRadius(8)
+                                        }
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 24)
                             } else {
                                 ForEach(filteredDevices) { device in
                                     DeviceControlRow(
@@ -338,6 +399,21 @@ struct DashboardTabView: View {
             .sheet(isPresented: $showWebUISheet) {
                 RouterWebUIView(service: service)
             }
+            // نافذة معالج الإعداد الذكي لأول مرة
+            .sheet(isPresented: $showSetupWizard) {
+                SetupWizardView(service: service) {
+                    showSetupWizard = false
+                }
+            }
+            // نافذة قوالب الراوترات الجاهزة
+            .sheet(isPresented: $showPresetsSheet) {
+                RouterPresetsSheet(service: service)
+            }
+            .onAppear {
+                if !hasCompletedWizard {
+                    showSetupWizard = true
+                }
+            }
         }
     }
 }
@@ -367,17 +443,38 @@ struct ComprehensiveQuotaCard: View {
                         }
                     }
 
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         Text("يتجدد يوم \(router.renewalDay) • متبقي \(router.daysUntilRenewal) يوم")
                             .font(.system(size: 11))
                             .foregroundColor(.gray)
 
-                        if let speed = router.liveSpeedFormatted {
-                            Text("•")
-                                .foregroundColor(.gray)
-                            Text(speed)
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                .foregroundColor(.cyan)
+                        // السرعات اللحظية
+                        HStack(spacing: 4) {
+                            HStack(spacing: 2) {
+                                Text("↓")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.blue)
+                                Text(router.downloadSpeedFormatted)
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .foregroundColor(.blue)
+                            }
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.15))
+                            .cornerRadius(4)
+
+                            HStack(spacing: 2) {
+                                Text("↑")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.green)
+                                Text(router.uploadSpeedFormatted)
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .foregroundColor(.green)
+                            }
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.15))
+                            .cornerRadius(4)
                         }
                     }
                 }
@@ -643,5 +740,33 @@ struct AddManualDeviceSheet: View {
             }
         }
         .environment(\.layoutDirection, .rightToLeft)
+    }
+}
+
+// MARK: - شريحة زر الإجراء السريع (Quick Action Chip)
+struct QuickActionChip: View {
+    let icon: String
+    let title: String
+    let color: Color
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.caption2.bold())
+                Text(title)
+                    .font(.caption2.bold())
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(color.opacity(0.18))
+            .foregroundColor(color)
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(color.opacity(0.35), lineWidth: 1)
+            )
+        }
     }
 }
