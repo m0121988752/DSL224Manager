@@ -317,12 +317,28 @@ struct RouterWebUIView: View {
                     }
                 )
             }
-            .sheet(isPresented: $showAssignmentSheet) {
+            .sheet(isPresented: $showAssignmentSheet, onDismiss: {
+                if isPickerModeActive && pickedElement == nil {
+                    isPickerModeActive = false
+                    webView.evaluateJavaScript(RouterWebUIView.stopPickerJS, completionHandler: nil)
+                    lastActionToast = "تم إيقاف وضع الالتقاط"
+                }
+            }) {
                 if let info = pickedElement {
                     ElementAssignmentSheet(
                         info: info,
                         onAssign: { action in
                             handleElementAssignment(info: info, action: action)
+                        },
+                        onCancelAndExitPicker: {
+                            isPickerModeActive = false
+                            pickedElement = nil
+                            webView.evaluateJavaScript(RouterWebUIView.stopPickerJS, completionHandler: nil)
+                            lastActionToast = "تم إيقاف وضع الالتقاط"
+                        },
+                        onContinuePicking: {
+                            pickedElement = nil
+                            lastActionToast = "وضع الالتقاط مفعّل: المس عنصراً آخر في الصفحة"
                         }
                     )
                 }
@@ -430,6 +446,7 @@ struct RouterWebUIView: View {
 
     private func handleElementAssignment(info: PickedElementInfo, action: ElementAssignmentAction) {
         showAssignmentSheet = false
+        pickedElement = nil
         var r = service.activeRouter
 
         switch action {
@@ -587,6 +604,7 @@ struct RouterWebUIView: View {
         }
 
         function onPointerMove(e) {
+            if (!window.__dslPickerActive) return;
             var x = e.clientX, y = e.clientY;
             var el = document.elementFromPoint(x, y);
             if (!el || el === box || box.contains(el)) return;
@@ -614,7 +632,15 @@ struct RouterWebUIView: View {
             }
         }
 
+        function onTouchMove(e) {
+            if (!window.__dslPickerActive) return;
+            if (e.touches && e.touches[0]) {
+                onPointerMove({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY });
+            }
+        }
+
         function onClick(e) {
+            if (!window.__dslPickerActive) return true;
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
@@ -641,18 +667,8 @@ struct RouterWebUIView: View {
             return false;
         }
 
-        window.__dslPickerMoveHandler = onPointerMove;
-        window.__dslPickerClickHandler = onClick;
-
-        document.addEventListener('pointermove', onPointerMove, true);
-        document.addEventListener('touchmove', function(e) {
-            if (e.touches && e.touches[0]) {
-                onPointerMove({ clientX: e.touches[0].clientX, clientY: e.touches[0].clientY });
-            }
-        }, { capture: true, passive: true });
-
-        document.addEventListener('click', onClick, true);
-        document.addEventListener('touchend', function(e) {
+        function onTouchEnd(e) {
+            if (!window.__dslPickerActive) return;
             if (e.changedTouches && e.changedTouches[0]) {
                 var t = e.changedTouches[0];
                 var el = document.elementFromPoint(t.clientX, t.clientY);
@@ -661,7 +677,17 @@ struct RouterWebUIView: View {
                     onClick(e);
                 }
             }
-        }, true);
+        }
+
+        window.__dslPickerPointerMove = onPointerMove;
+        window.__dslPickerTouchMove = onTouchMove;
+        window.__dslPickerClick = onClick;
+        window.__dslPickerTouchEnd = onTouchEnd;
+
+        document.addEventListener('pointermove', onPointerMove, true);
+        document.addEventListener('touchmove', onTouchMove, { capture: true, passive: true });
+        document.addEventListener('click', onClick, true);
+        document.addEventListener('touchend', onTouchEnd, true);
     })();
     """
 
@@ -670,14 +696,28 @@ struct RouterWebUIView: View {
     (function() {
         window.__dslPickerActive = false;
         var box = document.getElementById('__dsl_picker_box');
-        if (box && box.parentElement) {
-            box.parentElement.removeChild(box);
+        if (box) {
+            box.style.display = 'none';
+            if (box.parentElement) {
+                box.parentElement.removeChild(box);
+            }
         }
-        if (window.__dslPickerMoveHandler) {
-            document.removeEventListener('pointermove', window.__dslPickerMoveHandler, true);
+        if (window.__dslPickerPointerMove) {
+            document.removeEventListener('pointermove', window.__dslPickerPointerMove, true);
+            window.__dslPickerPointerMove = null;
         }
-        if (window.__dslPickerClickHandler) {
-            document.removeEventListener('click', window.__dslPickerClickHandler, true);
+        if (window.__dslPickerTouchMove) {
+            document.removeEventListener('touchmove', window.__dslPickerTouchMove, { capture: true, passive: true });
+            document.removeEventListener('touchmove', window.__dslPickerTouchMove, true);
+            window.__dslPickerTouchMove = null;
+        }
+        if (window.__dslPickerClick) {
+            document.removeEventListener('click', window.__dslPickerClick, true);
+            window.__dslPickerClick = null;
+        }
+        if (window.__dslPickerTouchEnd) {
+            document.removeEventListener('touchend', window.__dslPickerTouchEnd, true);
+            window.__dslPickerTouchEnd = null;
         }
     })();
     """
@@ -1116,6 +1156,8 @@ enum SuggestedElementType {
 struct ElementAssignmentSheet: View {
     let info: PickedElementInfo
     var onAssign: (ElementAssignmentAction) -> Void
+    var onCancelAndExitPicker: () -> Void
+    var onContinuePicking: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1260,6 +1302,42 @@ struct ElementAssignmentSheet: View {
                             .cornerRadius(8)
                         }
                         .padding(.top, 4)
+
+                        // أزرار سريعة للتحكم بوضع الالتقاط
+                        HStack(spacing: 12) {
+                            Button(action: {
+                                onCancelAndExitPicker()
+                                dismiss()
+                            }) {
+                                HStack {
+                                    Image(systemName: "xmark.circle")
+                                    Text("إلغاء وإيقاف الالتقاط")
+                                }
+                                .font(.caption.bold())
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color.red.opacity(0.18))
+                                .foregroundColor(.red)
+                                .cornerRadius(8)
+                            }
+
+                            Button(action: {
+                                onContinuePicking()
+                                dismiss()
+                            }) {
+                                HStack {
+                                    Image(systemName: "scope")
+                                    Text("متابعة اختيار آخر")
+                                }
+                                .font(.caption.bold())
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(Color.green.opacity(0.18))
+                                .foregroundColor(.green)
+                                .cornerRadius(8)
+                            }
+                        }
+                        .padding(.top, 4)
                     }
                     .padding(14)
                 }
@@ -1268,7 +1346,18 @@ struct ElementAssignmentSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("إلغاء") { dismiss() }
+                    Button("إلغاء وإيقاف الالتقاط") {
+                        onCancelAndExitPicker()
+                        dismiss()
+                    }
+                    .foregroundColor(.red)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("متابعة الالتقاط") {
+                        onContinuePicking()
+                        dismiss()
+                    }
+                    .foregroundColor(.green)
                 }
             }
         }
