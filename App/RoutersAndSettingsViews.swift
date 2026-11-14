@@ -199,6 +199,9 @@ struct RouterEditorSheet: View {
     @State private var customUsageRegex: String = ""
     @State private var customDeviceTableSelector: String = ""
     @State private var customRebootButtonSelector: String = ""
+    @State private var customUsernameSelector: String = ""
+    @State private var customPasswordSelector: String = ""
+    @State private var customLoginButtonSelector: String = ""
 
     var body: some View {
         NavigationStack {
@@ -274,6 +277,15 @@ struct RouterEditorSheet: View {
                     TextField("محدد زر إعادة التشغيل (Reboot Selector)", text: $customRebootButtonSelector)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    TextField("محدد حقل اسم المستخدم (Username Selector)", text: $customUsernameSelector)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("محدد حقل كلمة المرور (Password Selector)", text: $customPasswordSelector)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("محدد زر تسجيل الدخول (Login Selector)", text: $customLoginButtonSelector)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                 }
             }
             .navigationTitle(existingRouter == nil ? "إضافة راوتر جديد" : "تعديل الراوتر")
@@ -298,6 +310,9 @@ struct RouterEditorSheet: View {
                             edit.customUsageRegex = customUsageRegex
                             edit.customDeviceTableSelector = customDeviceTableSelector
                             edit.customRebootButtonSelector = customRebootButtonSelector
+                            edit.customUsernameSelector = customUsernameSelector
+                            edit.customPasswordSelector = customPasswordSelector
+                            edit.customLoginButtonSelector = customLoginButtonSelector
                             service.updateRouter(edit)
                         } else {
                             var newProfile = RouterProfile(
@@ -313,7 +328,10 @@ struct RouterEditorSheet: View {
                                 customUsageSelector: customUsageSelector,
                                 customUsageRegex: customUsageRegex,
                                 customDeviceTableSelector: customDeviceTableSelector,
-                                customRebootButtonSelector: customRebootButtonSelector
+                                customRebootButtonSelector: customRebootButtonSelector,
+                                customUsernameSelector: customUsernameSelector,
+                                customPasswordSelector: customPasswordSelector,
+                                customLoginButtonSelector: customLoginButtonSelector
                             )
                             newProfile.devices = RouterService.sampleDevices()
                             service.addRouter(newProfile)
@@ -337,6 +355,9 @@ struct RouterEditorSheet: View {
                     customUsageRegex = r.customUsageRegex
                     customDeviceTableSelector = r.customDeviceTableSelector
                     customRebootButtonSelector = r.customRebootButtonSelector
+                    customUsernameSelector = r.customUsernameSelector
+                    customPasswordSelector = r.customPasswordSelector
+                    customLoginButtonSelector = r.customLoginButtonSelector
                 }
             }
         }

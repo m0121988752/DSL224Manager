@@ -98,6 +98,9 @@ struct RouterProfile: Identifiable, Codable, Hashable {
     var customUsageUnit: String = "Auto"
     var customDeviceTableSelector: String = ""
     var customRebootButtonSelector: String = ""
+    var customUsernameSelector: String = ""
+    var customPasswordSelector: String = ""
+    var customLoginButtonSelector: String = ""
 
     enum CodingKeys: String, CodingKey {
         case id, name, routerIP, username, password, firmware
@@ -109,6 +112,7 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         case enableWebUIFallback, webUIPath
         case customUsageSelector, customUsageRegex, customUsageUnit
         case customDeviceTableSelector, customRebootButtonSelector
+        case customUsernameSelector, customPasswordSelector, customLoginButtonSelector
     }
 
     init(
@@ -143,7 +147,10 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         customUsageRegex: String = "",
         customUsageUnit: String = "Auto",
         customDeviceTableSelector: String = "",
-        customRebootButtonSelector: String = ""
+        customRebootButtonSelector: String = "",
+        customUsernameSelector: String = "",
+        customPasswordSelector: String = "",
+        customLoginButtonSelector: String = ""
     ) {
         self.id = id
         self.name = name
@@ -177,6 +184,9 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         self.customUsageUnit = customUsageUnit
         self.customDeviceTableSelector = customDeviceTableSelector
         self.customRebootButtonSelector = customRebootButtonSelector
+        self.customUsernameSelector = customUsernameSelector
+        self.customPasswordSelector = customPasswordSelector
+        self.customLoginButtonSelector = customLoginButtonSelector
     }
 
     init(from decoder: Decoder) throws {
@@ -213,6 +223,9 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         self.customUsageUnit = try container.decodeIfPresent(String.self, forKey: .customUsageUnit) ?? "Auto"
         self.customDeviceTableSelector = try container.decodeIfPresent(String.self, forKey: .customDeviceTableSelector) ?? ""
         self.customRebootButtonSelector = try container.decodeIfPresent(String.self, forKey: .customRebootButtonSelector) ?? ""
+        self.customUsernameSelector = try container.decodeIfPresent(String.self, forKey: .customUsernameSelector) ?? ""
+        self.customPasswordSelector = try container.decodeIfPresent(String.self, forKey: .customPasswordSelector) ?? ""
+        self.customLoginButtonSelector = try container.decodeIfPresent(String.self, forKey: .customLoginButtonSelector) ?? ""
     }
 
     // MARK: حسابات الباقة

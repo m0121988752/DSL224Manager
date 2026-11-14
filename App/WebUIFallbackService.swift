@@ -96,7 +96,7 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
 
         // 2. فحص وجود نموذج تسجيل دخول وتعبئته إذا وجد
         progressMessage = "فحص نموذج تسجيل الدخول..."
-        let loginAttempted = await attemptAutoLogin(username: router.username, password: router.password)
+        let loginAttempted = await attemptAutoLogin(username: router.username, password: router.password, router: router)
         if loginAttempted {
             progressMessage = "تم إرسال بيانات الدخول، انتظار تحديث الصفحة..."
             // انتظار ثوانٍ قليلة لتحديث الصفحة بعد الإرسال
@@ -122,7 +122,7 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
 
         // 4. كشط محتويات الصفحة الحالية
         progressMessage = "كشط البيانات والأجهزة والأزرار..."
-        let result = await scrapeCurrentPage()
+        let result = await scrapeCurrentPage(router: router)
         self.lastResult = result
         self.discoveredButtons = result.buttons
         return result
@@ -184,12 +184,15 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
     }
 
     // MARK: - تسجيل الدخول التلقائي عبر حقن JavaScript
-    func attemptAutoLogin(username: String, password: String, on targetWebView: WKWebView? = nil) async -> Bool {
+    func attemptAutoLogin(username: String, password: String, router: RouterProfile? = nil, on targetWebView: WKWebView? = nil) async -> Bool {
         let wv = targetWebView ?? headlessWebView
         guard let wv = wv else { return false }
 
         let escapedUser = username.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let escapedPass = password.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let customUser = (router?.customUsernameSelector ?? "").replacingOccurrences(of: "\"", with: "\\\"")
+        let customPass = (router?.customPasswordSelector ?? "").replacingOccurrences(of: "\"", with: "\\\"")
+        let customLogin = (router?.customLoginButtonSelector ?? "").replacingOccurrences(of: "\"", with: "\\\"")
 
         let js = """
         (function() {
@@ -205,6 +208,10 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                 '#login_username',
                 'input[type="text"]'
             ];
+            if ("\(customUser)".length > 0) {
+                userSelectors.unshift("\(customUser)");
+            }
+
             var passSelectors = [
                 '#f_password',
                 'input[name="f_password"]',
@@ -216,6 +223,9 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                 '#password',
                 '#txtPwd'
             ];
+            if ("\(customPass)".length > 0) {
+                passSelectors.unshift("\(customPass)");
+            }
 
             var userEl = null;
             for (var i = 0; i < userSelectors.length; i++) {
@@ -267,6 +277,9 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                 'button.login',
                 'a.login-btn'
             ];
+            if ("\(customLogin)".length > 0) {
+                submitSelectors.unshift("\(customLogin)");
+            }
 
             var submitEl = null;
             for (var k = 0; k < submitSelectors.length; k++) {
@@ -305,11 +318,16 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
     }
 
     // MARK: - كشط محتويات DOM (الإحصائيات، البايتات، الأجهزة، والأزرار)
-    func scrapeCurrentPage(on targetWebView: WKWebView? = nil) async -> WebUIScrapeResult {
+    func scrapeCurrentPage(router: RouterProfile? = nil, on targetWebView: WKWebView? = nil) async -> WebUIScrapeResult {
         let wv = targetWebView ?? headlessWebView
         guard let wv = wv else {
             return .empty
         }
+
+        let customSel = (router?.customUsageSelector ?? "").replacingOccurrences(of: "\"", with: "\\\"")
+        let customReg = (router?.customUsageRegex ?? "").replacingOccurrences(of: "\"", with: "\\\"")
+        let customUnit = (router?.customUsageUnit ?? "Auto").replacingOccurrences(of: "\"", with: "\\\"")
+        let customTableSel = (router?.customDeviceTableSelector ?? "").replacingOccurrences(of: "\"", with: "\\\"")
 
         let js = """
         (function() {
@@ -317,8 +335,50 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
             var title = document.title || '';
             var currentUrl = window.location.href;
 
-            // 1. استخراج العداد التراكمي (أرقام كبيرة 7 إلى 16 خانة، أو محلي الاستخدام 50.8 GB)
+            var customSel = "\(customSel)";
+            var customReg = "\(customReg)";
+            var customUnit = "\(customUnit)";
+            var customTableSel = "\(customTableSel)";
+
+            // 1. استخراج العداد التراكمي (أرقام كبيرة 7 إلى 16 خانة، أو محلي الاستخدام 50.8 GB، أو محدد No-Code المخصص)
             var foundBytes = null;
+
+            // أ) فحص محدد No-Code المخصص إذا وُجد
+            if (customSel.length > 0) {
+                try {
+                    var el = document.querySelector(customSel);
+                    if (el) {
+                        var textVal = el.innerText || el.textContent || el.value || '';
+                        if (customReg.length > 0) {
+                            var r = new RegExp(customReg, 'i');
+                            var m = textVal.match(r);
+                            if (m && m[1]) {
+                                var parsed = parseFloat(m[1].replace(/,/g, ''));
+                                if (!isNaN(parsed)) {
+                                    if (customUnit === 'GB') foundBytes = Math.round(parsed * 1024 * 1024 * 1024);
+                                    else if (customUnit === 'MB') foundBytes = Math.round(parsed * 1024 * 1024);
+                                    else if (customUnit === 'Bytes') foundBytes = Math.round(parsed);
+                                    else {
+                                        if (textVal.toUpperCase().indexOf('GB') !== -1) foundBytes = Math.round(parsed * 1024 * 1024 * 1024);
+                                        else if (textVal.toUpperCase().indexOf('MB') !== -1) foundBytes = Math.round(parsed * 1024 * 1024);
+                                        else foundBytes = Math.round(parsed);
+                                    }
+                                }
+                            }
+                        } else {
+                            var clean = textVal.match(/([0-9\\.]+)/);
+                            if (clean) {
+                                var p = parseFloat(clean[1]);
+                                if (!isNaN(p)) {
+                                    if (customUnit === 'GB' || textVal.toUpperCase().indexOf('GB') !== -1) foundBytes = Math.round(p * 1024 * 1024 * 1024);
+                                    else if (customUnit === 'MB' || textVal.toUpperCase().indexOf('MB') !== -1) foundBytes = Math.round(p * 1024 * 1024);
+                                    else foundBytes = Math.round(p);
+                                }
+                            }
+                        }
+                    }
+                } catch(e) {}
+            }
 
             // فحص نصوص هواوي و Flybox المباشرة مثل "محلي الاستخدام 50.8 GB"
             var huaweiUsage = bodyText.match(/محلي الاستخدام\\s*([0-9\\.]+)\\s*(GB|MB)/i) || bodyText.match(/([0-9\\.]+)\\s*GB/i);
@@ -392,7 +452,18 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
             var macRegex = /([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})/;
             var ipRegex = /\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b/;
 
-            var containers = document.querySelectorAll('tr, .device-item, .host-item, li, div.devicelist, div');
+            var containers = [];
+            if (customTableSel.length > 0) {
+                try {
+                    var tbl = document.querySelector(customTableSel);
+                    if (tbl) {
+                        containers = Array.from(tbl.querySelectorAll('tr, li, div'));
+                    }
+                } catch(e) {}
+            }
+            if (containers.length === 0) {
+                containers = Array.from(document.querySelectorAll('tr, .device-item, .host-item, li, div.devicelist, div'));
+            }
             containers.forEach(function(el) {
                 if (el.children.length > 15) return;
                 var rowText = el.innerText || '';
@@ -518,6 +589,7 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
         }
 
         // تجهيز المدخلات للسكريبت
+        let customReboot = (router?.customRebootButtonSelector ?? "").replacingOccurrences(of: "\"", with: "\\\"")
         let selArg = (selector ?? "").replacingOccurrences(of: "\"", with: "\\\"")
         let txtArg = (text ?? "").replacingOccurrences(of: "\"", with: "\\\"")
         let actionStr = semanticAction?.rawValue ?? ""
@@ -528,11 +600,19 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
             window.confirm = function() { return true; };
             window.alert = function() { return true; };
 
+            var customRebootSel = "\(customReboot)";
             var targetSelector = "\(selArg)";
             var targetText = "\(txtArg)".toLowerCase().trim();
             var action = "\(actionStr)".toLowerCase();
 
             var btn = null;
+
+            // 0. محاولة الوصول عبر محدد زر إعادة التشغيل المخصص إذا كان الإجراء إعادة تشغيل
+            if (action.indexOf('reboot') !== -1 && customRebootSel.length > 0) {
+                try {
+                    btn = document.querySelector(customRebootSel);
+                } catch(e) {}
+            }
 
             // 1. محاولة الوصول عبر CSS Selector المباشر
             if (targetSelector.length > 0) {

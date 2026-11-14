@@ -87,14 +87,25 @@
      - الضغط بالمعنى الدلالي (`Semantic Action`): أزرار إعادة التشغيل (`Reboot` / `Restart`)، الحفظ (`Apply` / `Save`)، التحديث، والدخول.
      - الضغط عبر محدد CSS المباشر (`#btn_reboot`, `#reboot_apply_button`).
      - تجاوز مربعات التأكيد التنبيهية (`window.confirm = () => true`).
-  4. **مُخصّص الكشط المرئي بدون كود (No-Code Scraper Builder UI)**:
-     - واجهة تتيح للمستخدم أو الوكيل الذكي تخصيص:
-       - `customUsageSelector`: محدد CSS لعداد الاستهلاك.
-       - `customUsageRegex`: نمط الاستخراج المطابق للأرقام.
-       - `customUsageUnit`: وحدة الاستهلاك (`Auto`, `GB`, `MB`, `Bytes`).
-       - `customDeviceTableSelector`: محدد جدول الأجهزة المتصلة.
-       - `customRebootButtonSelector`: محدد زر إعادة التشغيل.
-     - قوالب سريعة مسبقة الإعداد (Presets) لـ Huawei Flybox و D-Link DSL-224 و Realtek Boaform.
+  4. **مُخصّص الكشط المرئي ومُلتقِط العناصر بدون كود لأي راوتر (Universal No-Code Visual Element Picker)**:
+     - يتيح لأي مستخدم ربط تطبيقه بأي راوتر في العالم (Huawei, D-Link, TP-Link, ZTE, Vodafone, Orange, WE, Netgear, Xiaomi, Tenda, إلخ) دون كتابة سطر كود واحد:
+     - **وضع الالتقاط البصري التفاعلي (Interactive Picker Mode)**:
+       - تفعيل وضع الالتقاط بنقرة زر في شريط أدوات المتصفح المدمج.
+       - طبقة إبراز عائمة بلون أخضر تتبع مؤشر اللمس (`Highlight Overlay & Badge`).
+       - منع التنفيذ التلقائي للأزرار والروابط أثناء الالتقاط لتجنب إعادة التشغيل غير المقصودة (`e.preventDefault()`).
+       - توليد محدد CSS فريد ودقيق بذكاء (`#id`, `tag[name=...]`, مسار تراتبي).
+     - **اقتراح ذكي وتعيين فوري (Smart Type Detection & 1-Tap Assignment)**:
+       - نافذة فورية تقترح نوع العنصر تلقائياً بناءً على نصه ومكانه:
+         - 📊 **عداد استهلاك الباقة**: يستخرج المحدد ويكتشف الوحدة تلقائياً (`GB`, `MB`, `Bytes`).
+         - 📱 **جدول الأجهزة المتصلة**: يكشف جداول الـ MAC/IP وحصر الأجهزة.
+         - 🔄 **زر إعادة التشغيل**: يعين زر الـ Reboot لأتمتة إعادة التشغيل.
+         - 🔑 **حقل اسم المستخدم**: لملء الدخول التلقائي في أي راوتر.
+         - 🔒 **حقل كلمة المرور**: لملء كلمة السر التلقائية.
+         - 🚪 **زر تسجيل الدخول**: للنقر عليه تلقائياً بعد ملء النموذج.
+     - **تخزين المحددات**:
+       - `customUsageSelector`, `customUsageRegex`, `customUsageUnit`
+       - `customDeviceTableSelector`, `customRebootButtonSelector`
+       - `customUsernameSelector`, `customPasswordSelector`, `customLoginButtonSelector`
 
 ---
 
