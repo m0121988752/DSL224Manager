@@ -1,0 +1,23 @@
+{
+  "name": "DSL224Manager Repo",
+  "identifier": "com.personal.dsl224manager.source",
+  "subtitle": "إدارة وتحكم راوترات DSL224 و Huawei",
+  "description": "المستودع الرسمي لتطبيق DSL224Manager لدعم التحديثات المباشرة التلقائية عبر AltStore و SideStore مع نافذة ما الجديد وسرعات الرفع والتحميل.",
+  "website": "https://github.com/m0121988752/DSL224Manager",
+  "apps": [
+    {
+      "name": "DSL224Manager",
+      "bundleIdentifier": "com.personal.DSL224Manager",
+      "developerName": "DSL224Manager Team",
+      "version": "1.1",
+      "versionDate": "2026-11-15T09:00:00Z",
+      "versionDescription": "ما الجديد في هذا التحديث:\n- دعم التحديثات التلقائية المباشرة عبر مستودع AltStore و SideStore\n- دعم كامل لراوترات D-Link و Huawei B311 وسرعات الرفع والتحميل الحية\n- دعم كامل للويدجت على الشاشة الرئيسية وشاشة القفل بدون أي رموز تعبيرية\n- نظام الكشط والتحكم الذكي No-Code للأزرار",
+      "downloadURL": "https://github.com/m0121988752/DSL224Manager/releases/latest/download/DSL224Manager.ipa",
+      "localizedDescription": "تطبيق متكامل لإدارة ومراقبة استهلاك باقة الراوتر وحظر وفصل الأجهزة المتصلة ودعم سرعات الرفع والتحميل الحية وويدجت الشاشة الرئيسية.",
+      "tintColor": "007AFF",
+      "size": 3500000,
+      "screenshotURLs": []
+    }
+  ],
+  "news": []
+}

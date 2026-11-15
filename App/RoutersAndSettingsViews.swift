@@ -588,6 +588,7 @@ struct FullSettingsTabView: View {
     @State private var showWebUIHub: Bool = false
     @State private var showPresetsSheet: Bool = false
     @State private var showSetupWizard: Bool = false
+    @State private var copiedAltStoreMsg: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -853,6 +854,58 @@ struct FullSettingsTabView: View {
                         Label("الضغط على زر إعادة التشغيل (Reboot) عبر المتصفح", systemImage: "power")
                             .foregroundColor(.red)
                     }
+                }
+
+                // 7. التحديثات التلقائية ومستودع AltStore
+                Section("التحديثات ومستودع AltStore") {
+                    Link(destination: URL(string: "altstore://source?url=https://raw.githubusercontent.com/m0121988752/DSL224Manager/main/altstore-source.json")!) {
+                        HStack {
+                            Label("إضافة المصدر إلى AltStore تلقائياً", systemImage: "arrow.down.app.fill")
+                            Spacer()
+                            Image(systemName: "arrow.up.forward.app")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+
+                    Link(destination: URL(string: "sidestore://source?url=https://raw.githubusercontent.com/m0121988752/DSL224Manager/main/altstore-source.json")!) {
+                        HStack {
+                            Label("إضافة المصدر إلى SideStore تلقائياً", systemImage: "square.and.arrow.down.on.square.fill")
+                            Spacer()
+                            Image(systemName: "arrow.up.forward.app")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+
+                    Button(action: {
+                        UIPasteboard.general.string = "https://raw.githubusercontent.com/m0121988752/DSL224Manager/main/altstore-source.json"
+                        copiedAltStoreMsg = true
+                    }) {
+                        HStack {
+                            Label("نسخ رابط مصدر AltStore للمشاركة", systemImage: "doc.on.doc.fill")
+                            Spacer()
+                            if copiedAltStoreMsg {
+                                Text("تم النسخ")
+                                    .font(.caption2.bold())
+                                    .foregroundColor(.green)
+                            }
+                        }
+                    }
+
+                    Link(destination: URL(string: "https://github.com/m0121988752/DSL224Manager/releases")!) {
+                        HStack {
+                            Label("عرض الإصدارات وملفات IPA على GitHub", systemImage: "safari.fill")
+                            Spacer()
+                            Image(systemName: "chevron.left")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
+                    }
+
+                    Text("عند إضافة هذا المصدر في AltStore أو SideStore، سيتلقى جهازك إشعارات التحديث التلقائي الفورية مع نافذة ما الجديد (What's New) وتثبيت التحديث بضغطة زر واحدة.")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
                 }
             }
             .navigationTitle("الإعدادات الشاملة")

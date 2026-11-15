@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Unsigned IPA
@@ -44,3 +47,18 @@ jobs:
           name: DSL224Manager-IPA
           path: DSL224Manager.ipa
           retention-days: 14
+
+      - name: Publish GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="v1.1.${{ github.run_number }}"
+          echo "Publishing iOS GitHub Release $TAG_NAME"
+          gh release create "$TAG_NAME" \
+            DSL224Manager.ipa \
+            --title "DSL224Manager iOS $TAG_NAME" \
+            --notes "### ما الجديد في هذا التحديث (What's New):
+- حزمة DSL224Manager.ipa جاهزة للتثبيت المباشر عبر AltStore و SideStore و TrollStore
+- دعم مستودع AltStore التلقائي (AltStore Source) للإشعارات الفورية والتحديث بضغطة زر
+- دعم كامل لويدجت شاشة القفل والشاشة الرئيسية بدون أي رموز تعبيرية
+- تحسين أداء كشط WebUI البديل والتعامل مع راوترات D-Link و Huawei"

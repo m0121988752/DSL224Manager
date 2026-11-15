@@ -177,3 +177,14 @@
 - **التصاعد التلقائي لأرقام الإصدار (Dynamic VersionCode)**: ربط `versionCode = 100 + GITHUB_RUN_NUMBER` لضمان زيادة رقم الإصدار تلقائياً مع كل عملية بناء على خوادم GitHub Actions، مما يسمح لنظام أندرويد بقبول الحزمة كتحديث فوري دون رسائل خطأ.
 - **التحقق الآلي من الشهادات في CI**: فحص توقيع الحزم الناتجة في GitHub Actions عبر أداة `apksigner verify --verbose --print-certs` للتأكد من سلامة طبقات التوقيع (V1 و V2 و V3).
 - **حل تعارض التوقيع لمرة واحدة (One-Time Transition)**: يتطلب التحديث الأولي إلغاء تثبيت النسخة القديمة (الموقعة بمفتاح مؤقت من خادم زائل) وتثبيت الحزمة الجديدة الموقعة بالمفتاح الدائم لمرة واحدة فقط، ليصبح التحديث بعدها سلساً ومستمراً للأبد بضغطة زر.
+
+### 9. منظومة التحديث التلقائي ومستودع AltStore (Auto-Updates, GitHub Releases & AltStore Repository)
+- **النشر التلقائي عبر GitHub Releases**:
+  - تم ربط مسارات العمل (Workflows) في كلا المستودعين بنظام `gh release create` مع صلاحية `permissions: contents: write` لنشر كل عملية بناء جديدة تلقائياً مع تاج متصاعد (`v1.1.<run_number>`) وإرفاق الحزم التنفيذية (`app-release.apk` و `app-debug.apk` في أندرويد، و `DSL224Manager.ipa` في iOS) مصحوبة بسجل ما الجديد في هذا التحديث (What's New).
+- **التحديث التلقائي ونافذة ما الجديد في أندرويد (In-App Auto-Update & What's New)**:
+  - خدمة `AppUpdateService.kt` تفحص أحدث إصدار منشور على GitHub Releases API تلقائياً في الخلفية عند فتح التطبيق ويدوياً عبر زر الفحص في تبويب الإعدادات.
+  - نافذة `WhatsNewUpdateDialog`: تظهر تلقائياً عند توفر إصدار أحدث، وتعرض رقم الإصدار، تفاصيل وسجل ما الجديد (Changelog)، مع زر تحميل وتثبيت فوري بضغطة واحدة (`1-Tap Install`).
+- **مستودع AltStore و SideStore الأصيل في iOS (AltStore Source Repository)**:
+  - ملف `altstore-source.json` في المستودع المعتمد رسمياً لدى AltStore و SideStore مع رابط التحميل المباشر `releases/latest/download/DSL224Manager.ipa`.
+  - أزرار تفاعلية في قسم الإعدادات بإشارات روابط عميقة (`altstore://source?url=...` و `sidestore://source?url=...`) لإضافة المصدر بنقرة واحدة إلى تطبيق AltStore أو SideStore.
+  - يتولى AltStore إشعار المستخدم فورياً بوجود تحديث جديد، وإظهار نافذة ما الجديد وتثبيت التحديث مع تجديد الشهادة تلقائياً.
