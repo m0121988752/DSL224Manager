@@ -118,7 +118,7 @@ struct RouterWebUIView: View {
                             Button(action: { togglePickerMode() }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: isPickerModeActive ? "target" : "scope")
-                                    Text(isPickerModeActive ? "إلغاء الالتقاط" : "التقاط عنصر 🎯")
+                                    Text(isPickerModeActive ? "إلغاء الالتقاط" : "التقاط عنصر")
                                 }
                                 .font(.caption.bold())
                                 .padding(.horizontal, 10)
@@ -188,7 +188,7 @@ struct RouterWebUIView: View {
                             Button(action: { showPresetsSheet = true }) {
                                 HStack(spacing: 4) {
                                     Image(systemName: "square.grid.2x2")
-                                    Text("قوالب 📋")
+                                    Text("قوالب")
                                 }
                                 .font(.caption.bold())
                                 .padding(.horizontal, 10)
@@ -223,7 +223,7 @@ struct RouterWebUIView: View {
                             Image(systemName: "scope")
                                 .foregroundColor(.black)
                                 .font(.caption.bold())
-                            Text("وضع التقاط العناصر مفعّل 🎯: انقر على أي رقم استهلاك، جدول أجهزة، أو زر في صفحة الراوتر لربطه فوراً بدون كود")
+                            Text("وضع التقاط العناصر مفعّل: انقر على أي رقم استهلاك، جدول أجهزة، أو زر في صفحة الراوتر لربطه فوراً بدون كود")
                                 .font(.caption2.bold())
                                 .foregroundColor(.black)
                             Spacer()
@@ -335,7 +335,7 @@ struct RouterWebUIView: View {
             .sheet(isPresented: $showPresetsSheet) {
                 PresetsLibrarySheet(service: service) {
                     showPresetsSheet = false
-                    lastActionToast = "تم تطبيق قالب الراوتر بنجاح ✅"
+                    lastActionToast = "تم تطبيق قالب الراوتر بنجاح"
                 }
             }
             .sheet(isPresented: $showAssignmentSheet, onDismiss: {
@@ -462,9 +462,9 @@ struct RouterWebUIView: View {
         """
         webView.evaluateJavaScript(js) { res, _ in
             if let str = res as? String, str == "clicked" {
-                lastActionToast = "✅ تم اختبار النقر على العنصر في الصفحة بنجاح"
+                lastActionToast = "تم اختبار النقر على العنصر في الصفحة بنجاح"
             } else {
-                lastActionToast = "⚠️ تم إرسال أمر النقر للعنصر"
+                lastActionToast = "تم إرسال أمر النقر للعنصر"
             }
         }
     }
@@ -481,7 +481,7 @@ struct RouterWebUIView: View {
     private func togglePickerMode() {
         isPickerModeActive.toggle()
         if isPickerModeActive {
-            lastActionToast = "تم تفعيل وضع الالتقاط 🎯: انقر على أي رقم أو جدول أو زر في صفحة الراوتر"
+            lastActionToast = "تم تفعيل وضع الالتقاط: انقر على أي رقم أو جدول أو زر في صفحة الراوتر"
             webView.evaluateJavaScript(RouterWebUIView.startPickerJS, completionHandler: nil)
         } else {
             lastActionToast = "تم إيقاف وضع الالتقاط"
@@ -1451,7 +1451,7 @@ struct ElementAssignmentSheet: View {
         if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
            let match = regex.firstMatch(in: combined, range: NSRange(combined.startIndex..., in: combined)) {
             if let r = Range(match.range, in: combined) {
-                return "معاينة حية: سيقرأ التطبيق الاستهلاك بنجاح (\(combined[r])) ✅"
+                return "معاينة حية: سيقرأ التطبيق الاستهلاك بنجاح (\(combined[r]))"
             }
         }
 
@@ -1461,13 +1461,13 @@ struct ElementAssignmentSheet: View {
            let match = regex.firstMatch(in: combined, range: NSRange(combined.startIndex..., in: combined)) {
             if let r = Range(match.range, in: combined), let num = UInt64(combined[r]), num > 1_000_000 {
                 let gb = Double(num) / (1024.0 * 1024.0 * 1024.0)
-                return "معاينة حية: سيقرأ العداد التراكمي: \(String(format: "%.2f", gb)) GB (\(num) بايت) ✅"
+                return "معاينة حية: سيقرأ العداد التراكمي: \(String(format: "%.2f", gb)) GB (\(num) بايت)"
             }
         }
 
         // فحص جدول أجهزة
         if info.tag.lowercased() == "table" || info.tag.lowercased() == "tbody" || info.tag.lowercased() == "tr" || combined.lowercased().contains("mac") || combined.lowercased().contains("ip") {
-            return "معاينة حية: تم التعرف على هيكل جدول الأجهزة المتصلة ✅"
+            return "معاينة حية: تم التعرف على هيكل جدول الأجهزة المتصلة"
         }
 
         return nil

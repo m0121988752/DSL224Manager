@@ -234,7 +234,7 @@ struct RouterEditorSheet: View {
                             )
                             let json = RouterPresetsManager.exportTemplate(from: tempProfile)
                             UIPasteboard.general.string = json
-                            presetMessage = "تم نسخ القالب للحافظة بدون كلمة السر! 📋"
+                            presetMessage = "تم نسخ القالب للحافظة بدون كلمة السر"
                         }) {
                             HStack {
                                 Image(systemName: "square.and.arrow.up")
@@ -260,12 +260,12 @@ struct RouterEditorSheet: View {
                                     customUsernameSelector = temp.customUsernameSelector
                                     customPasswordSelector = temp.customPasswordSelector
                                     customLoginButtonSelector = temp.customLoginButtonSelector
-                                    presetMessage = "تم استيراد القالب وتطبيقه على الحقول بنجاح! ✅"
+                                    presetMessage = "تم استيراد القالب وتطبيقه على الحقول بنجاح"
                                 } else {
-                                    presetMessage = "النص في الحافظة ليس قالب راوتر صالحاً ⚠️"
+                                    presetMessage = "النص في الحافظة ليس قالب راوتر صالحاً"
                                 }
                             } else {
-                                presetMessage = "الحافظة فارغة! 📋"
+                                presetMessage = "الحافظة فارغة"
                             }
                         }) {
                             HStack {
@@ -408,7 +408,7 @@ struct RouterEditorSheet: View {
                     customUsernameSelector = preset.customUsernameSelector
                     customPasswordSelector = preset.customPasswordSelector
                     customLoginButtonSelector = preset.customLoginButtonSelector
-                    presetMessage = "تم تطبيق قالب [\(preset.name)] بنجاح! ✅"
+                    presetMessage = "تم تطبيق قالب [\(preset.name)] بنجاح"
                 })
             }
             .onAppear {
@@ -779,7 +779,7 @@ struct FullSettingsTabView: View {
 
                     Button(action: {
                         service.sendAlert(
-                            title: "✅ إشعار تجريبي ناجح",
+                            title: "إشعار تجريبي ناجح",
                             body: "التنبيهات تعمل بنجاح على (\(service.activeRouter.name)). المتبقي: \(String(format: "%.1f", service.activeRouter.remainingGB)) GB"
                         )
                     }) {
@@ -929,7 +929,7 @@ struct BackupRestoreSheet: View {
                 HStack(spacing: 10) {
                     Button(action: {
                         UIPasteboard.general.string = jsonText
-                        statusAlert = "تم نسخ النسخة الاحتياطية إلى الحافظة ✅"
+                        statusAlert = "تم نسخ النسخة الاحتياطية إلى الحافظة بنجاح"
                     }) {
                         Label("نسخ للحافظة", systemImage: "doc.on.doc")
                             .font(.caption.bold())
@@ -942,9 +942,9 @@ struct BackupRestoreSheet: View {
 
                     Button(action: {
                         if service.importBackupJSON(jsonText) {
-                            statusAlert = "تمت استعادة البيانات بنجاح ✅"
+                            statusAlert = "تمت استعادة البيانات بنجاح"
                         } else {
-                            statusAlert = "تنسيق JSON غير صالح ❌"
+                            statusAlert = "تنسيق JSON غير صالح"
                         }
                     }) {
                         Label("استعادة من النص", systemImage: "arrow.down.doc.fill")

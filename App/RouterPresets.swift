@@ -268,7 +268,7 @@ struct PresetsLibrarySheet: View {
                                 Button(action: {
                                     let json = RouterPresetsManager.exportTemplate(from: service.activeRouter)
                                     UIPasteboard.general.string = json
-                                    toastMessage = "تم نسخ قالب راوترك للحافظة بنجاح! يمكنك مشاركته الآن 📋"
+                                    toastMessage = "تم نسخ قالب راوترك للحافظة بنجاح! يمكنك مشاركته الآن"
                                 }) {
                                     HStack {
                                         Image(systemName: "square.and.arrow.up")
@@ -309,14 +309,14 @@ struct PresetsLibrarySheet: View {
                                             } else {
                                                 service.updateRouter(r)
                                                 service.saveAllProfiles()
-                                                toastMessage = "تم استيراد القالب من الحافظة وتطبيقه بنجاح! ✅"
+                                                toastMessage = "تم استيراد القالب من الحافظة وتطبيقه بنجاح"
                                                 onPresetApplied()
                                             }
                                         } else {
-                                            toastMessage = "النص الموجود في الحافظة ليس قالب راوتر صالحاً ⚠️"
+                                            toastMessage = "النص الموجود في الحافظة ليس قالب راوتر صالحاً"
                                         }
                                     } else {
-                                        toastMessage = "الحافظة فارغة! انسخ كود القالب أولاً 📋"
+                                        toastMessage = "الحافظة فارغة! انسخ كود القالب أولاً"
                                     }
                                 }) {
                                     HStack {
@@ -352,7 +352,7 @@ struct PresetsLibrarySheet: View {
                                         RouterPresetsManager.applyPreset(preset, to: &r)
                                         service.updateRouter(r)
                                         service.saveAllProfiles()
-                                        toastMessage = "تم تطبيق قالب [\(preset.name)] بنجاح! ✅"
+                                        toastMessage = "تم تطبيق قالب [\(preset.name)] بنجاح"
                                         onPresetApplied()
                                     }
                                 }

@@ -74,7 +74,7 @@ struct SetupWizardView: View {
                         .background(Color(white: 0.08))
                 }
             }
-            .navigationTitle("معالج الإعداد الذكي 🪄")
+            .navigationTitle("معالج الإعداد الذكي")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -308,7 +308,7 @@ struct SetupWizardView: View {
                             Text("جارِ اختبار الاتصال...")
                         } else {
                             Image(systemName: "bolt.fill")
-                            Text("⚡ اختبار الاتصال بكلمة المرور الآن")
+                            Text("اختبار الاتصال بكلمة المرور الآن")
                         }
                     }
                     .font(.caption.bold())
@@ -424,7 +424,7 @@ struct SetupWizardView: View {
     private var stepFourSummaryView: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("الخطوة 4: جاهز للاستخدام! 🚀")
+                Text("الخطوة 4: جاهز للاستخدام!")
                     .font(.headline.bold())
                     .foregroundColor(.white)
                 Text("راجع ملخص إعدادات الراوتر واضغط على زر البدء لتطبيقها مباشرة.")
@@ -497,7 +497,7 @@ struct SetupWizardView: View {
 
             Button(action: handleNextStep) {
                 HStack {
-                    Text(currentStep == 4 ? "حفظ وبدء استخدام التطبيق 🚀" : "التالي")
+                    Text(currentStep == 4 ? "حفظ وبدء استخدام التطبيق" : "التالي")
                         .font(.subheadline.bold())
                     if currentStep < 4 {
                         Image(systemName: "chevron.left")

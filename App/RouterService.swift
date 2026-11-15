@@ -237,7 +237,7 @@ class RouterService: ObservableObject {
             r.lastResetMonth = month
             r.lastResetYear = year
             activeRouter = r
-            sendAlert(title: "🔄 تجديد باقة \(r.name)", body: "تم تصفير عداد الاستهلاك لبداية الشهر الجديد.")
+            sendAlert(title: "تجديد باقة \(r.name)", body: "تم تصفير عداد الاستهلاك لبداية الشهر الجديد.")
             addLog("تم تصفير العداد تلقائياً لموعد التجديد الشهري")
         }
     }
@@ -289,7 +289,7 @@ class RouterService: ObservableObject {
                 r.notifiedThresholds.append(threshold)
                 changed = true
                 sendAlert(
-                    title: "⚠️ تنبيه باقة (\(r.name))",
+                    title: "تنبيه باقة (\(r.name))",
                     body: "تجاوز استهلاك الباقة \(threshold)%! المتبقي حالياً \(String(format: "%.1f", r.remainingGB)) جيجابايت."
                 )
             }
@@ -324,7 +324,7 @@ class RouterService: ObservableObject {
 
         // في حال تعذر الحصول على قراءة العداد أو فشل الاتصال وتفعيل المتصفح البديل
         if (!success || (r.firmware != .huaweiB311 && r.accumulatedBytes == 0)) && r.enableWebUIFallback {
-            addLog("⚠️ محاولة الاتصال بالمتصفح البديل وكشط البيانات (WebUI Fallback)...")
+            addLog("[تنبيه] محاولة الاتصال بالمتصفح البديل وكشط البيانات (WebUI Fallback)...")
             let fallbackSuccess = await runWebUIFallbackScrape()
             if fallbackSuccess {
                 return true
@@ -338,20 +338,20 @@ class RouterService: ObservableObject {
     func testRouterConnection(profile: RouterProfile) async -> (success: Bool, message: String) {
         if profile.firmware == .huaweiB311 {
             if profile.password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return (false, "⚠️ يرجى إدخال كلمة المرور أولاً")
+                return (false, "[تنبيه] يرجى إدخال كلمة المرور أولاً")
             }
             let ok = await loginAndRefreshHuawei(router: profile)
             if ok {
-                return (true, "✅ تم تسجيل الدخول لراوتر هواوي بنجاح!")
+                return (true, "[نجاح] تم تسجيل الدخول لراوتر هواوي بنجاح!")
             } else {
-                return (false, "❌ تعذر تسجيل الدخول لراوتر هواوي، تحقق من كلمة المرور.")
+                return (false, "[خطأ] تعذر تسجيل الدخول لراوتر هواوي، تحقق من كلمة المرور.")
             }
         } else {
             let ok = await loginAndRefreshDLink(router: profile)
             if ok {
-                return (true, "✅ تم تسجيل الدخول لراوتر D-Link بنجاح!")
+                return (true, "[نجاح] تم تسجيل الدخول لراوتر D-Link بنجاح!")
             } else {
-                return (false, "❌ تعذر الاتصال بـ D-Link (\(profile.routerIP))")
+                return (false, "[خطأ] تعذر الاتصال بـ D-Link (\(profile.routerIP))")
             }
         }
     }
@@ -362,7 +362,7 @@ class RouterService: ObservableObject {
         let result = await webUIFallback.autoLoginAndScrape(router: r)
         if result.success && ((result.wanBytes ?? 0) > 0 || !result.devices.isEmpty) {
             applyWebUIScrapeResult(result)
-            addLog("✅ نجح كشط صفحة الويب للراوتر البديلة (WebUI Scraper)")
+            addLog("[نجاح] نجح كشط صفحة الويب للراوتر البديلة (WebUI Scraper)")
             return true
         } else {
             addLog("ملاحظة كشط WebUI: \(result.message)", isError: false)
@@ -431,9 +431,9 @@ class RouterService: ObservableObject {
         let r = activeRouter
         let res = await webUIFallback.pressButton(router: r, selector: selector, text: text, semanticAction: semanticAction)
         if res.success {
-            addLog("✅ تم الضغط على زر في صفحة الراوتر: \(res.message)")
+            addLog("[نجاح] تم الضغط على زر في صفحة الراوتر: \(res.message)")
         } else {
-            addLog("❌ تعذر الضغط على زر WebUI: \(res.message)", isError: true)
+            addLog("[خطأ] تعذر الضغط على زر WebUI: \(res.message)", isError: true)
         }
         return res
     }
@@ -548,7 +548,7 @@ class RouterService: ObservableObject {
               let xml = String(data: data, encoding: .utf8),
               let sesInfo = extractXMLTag("SesInfo", from: xml),
               let tokInfo = extractXMLTag("TokInfo", from: xml) else {
-            addLog("❌ فشل جلب SesTokInfo من راوتر Huawei", isError: true)
+            addLog("[خطأ] فشل جلب SesTokInfo من راوتر Huawei", isError: true)
             return
         }
 
@@ -560,7 +560,7 @@ class RouterService: ObservableObject {
         let cleanCookie = currentCookie.components(separatedBy: ";").first?.trimmingCharacters(in: .whitespaces) ?? currentCookie
         sessionCookies[r.id] = cleanCookie
         verificationTokens[r.id] = tokInfo
-        addLog("📡 SesTokInfo: sesInfo=\(sesInfo.prefix(20))... tok=\(tokInfo.prefix(10))...")
+        addLog("[اتصال] SesTokInfo: sesInfo=\(sesInfo.prefix(20))... tok=\(tokInfo.prefix(10))...")
 
         // 2. إرسال challenge_login
         let firstNonce = (0..<24).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
@@ -583,14 +583,14 @@ class RouterService: ObservableObject {
 
             guard let (chalData, chalRes) = try? await session.data(for: chalReq),
                   let chalXML = String(data: chalData, encoding: .utf8) else {
-                addLog("❌ فشل إرسال challenge_login", isError: true)
+                addLog("[خطأ] فشل إرسال challenge_login", isError: true)
                 return
             }
 
             guard let saltHex = extractXMLTag("salt", from: chalXML),
                   let serverNonce = extractXMLTag("servernonce", from: chalXML) else {
                 let errCode = extractXMLTag("code", from: chalXML) ?? "؟"
-                addLog("❌ challenge_login فشل (كود: \(errCode))", isError: true)
+                addLog("[خطأ] challenge_login فشل (كود: \(errCode))", isError: true)
                 return
             }
 
@@ -610,7 +610,7 @@ class RouterService: ObservableObject {
 
             guard let saltBytes = dataFromHex(saltHex),
                   let saltedPassword = pbkdf2SHA256(password: r.password, salt: saltBytes, iterations: iterations) else {
-                addLog("❌ فشل حساب PBKDF2", isError: true)
+                addLog("[خطأ] فشل حساب PBKDF2", isError: true)
                 return
             }
 
@@ -640,7 +640,7 @@ class RouterService: ObservableObject {
 
             if let (authData, authRes) = try? await session.data(for: authReq) {
                 let authStr = String(data: authData, encoding: .utf8) ?? ""
-                addLog("📡 auth_login response: \(authStr.trimmingCharacters(in: .whitespacesAndNewlines))")
+                addLog("[اتصال] auth_login response: \(authStr.trimmingCharacters(in: .whitespacesAndNewlines))")
                 if let http = authRes as? HTTPURLResponse {
                     if let c = http.allHeaderFields["Set-Cookie"] as? String {
                         let cleanC = c.components(separatedBy: ";").first?.trimmingCharacters(in: .whitespaces) ?? c
@@ -653,21 +653,21 @@ class RouterService: ObservableObject {
                     let hasError = authStr.contains("<error>") || authStr.contains("<code>")
                     let hasServerProof = authStr.contains("<serverproof>") || authStr.contains("<response>")
                     if hasServerProof || (!hasError && http.statusCode == 200) {
-                        addLog("✅ تم تسجيل الدخول لراوتر Huawei بنجاح كمسؤول (Huawei SCRAM)")
+                        addLog("[نجاح] تم تسجيل الدخول لراوتر Huawei بنجاح كمسؤول (Huawei SCRAM)")
                         return
                     } else {
                         let errCode = extractXMLTag("code", from: authStr) ?? "غير معروف"
-                        addLog("❌ فشل authentication_login (كود: \(errCode)) - يرجى التأكد من كلمة المرور", isError: true)
+                        addLog("[خطأ] فشل authentication_login (كود: \(errCode)) - يرجى التأكد من كلمة المرور", isError: true)
                         return
                     }
                 }
             } else {
-                addLog("❌ لا يوجد رد من authentication_login", isError: true)
+                addLog("[خطأ] لا يوجد رد من authentication_login", isError: true)
                 return
             }
         }
 
-        addLog("❌ SCRAM: لم يتم جلب salt/serverNonce من challenge_login", isError: true)
+        addLog("[خطأ] SCRAM: لم يتم جلب salt/serverNonce من challenge_login", isError: true)
     }
 
     private func fetchHuaweiHosts(_ r: inout RouterProfile) async {
@@ -1014,7 +1014,7 @@ class RouterService: ObservableObject {
         let r = activeRouter
         if preferWebUI {
             _ = await pressWebUIButton(semanticAction: .reboot)
-            sendAlert(title: "🔄 إعادة تشغيل (\(r.name))", body: "تم الضغط على زر إعادة التشغيل عبر المتصفح...")
+            sendAlert(title: "إعادة تشغيل (\(r.name))", body: "تم الضغط على زر إعادة التشغيل عبر المتصفح...")
             return
         }
 
@@ -1051,7 +1051,7 @@ class RouterService: ObservableObject {
         }
 
         addLog("تم إرسال أمر إعادة تشغيل الراوتر (\(r.name))")
-        sendAlert(title: "🔄 إعادة تشغيل (\(r.name))", body: "جاري إعادة تشغيل الراوتر... سيعود الاتصال خلال 90 ثانية.")
+        sendAlert(title: "إعادة تشغيل (\(r.name))", body: "جاري إعادة تشغيل الراوتر... سيعود الاتصال خلال 90 ثانية.")
     }
 
     // MARK: - أدوات مساعدة (Crypto + XML)
