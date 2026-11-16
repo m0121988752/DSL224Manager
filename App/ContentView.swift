@@ -145,6 +145,11 @@ struct DashboardTabView: View {
                             onCalibrateTap: {
                                 calibrateInputGB = String(format: "%.1f", service.activeRouter.usedGB)
                                 showQuickCalibrate = true
+                            },
+                            onFastChangeNetMode: { mode in
+                                Task {
+                                    _ = await service.setHuaweiNetMode(newMode: mode)
+                                }
                             }
                         )
 
@@ -446,6 +451,7 @@ struct DashboardTabView: View {
 struct ComprehensiveQuotaCard: View {
     let router: RouterProfile
     var onCalibrateTap: () -> Void
+    var onFastChangeNetMode: ((String) -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 10) {
@@ -550,6 +556,44 @@ struct ComprehensiveQuotaCard: View {
                     sub: "لإكمال الشهر",
                     color: .green
                 )
+            }
+
+            // التبديل السريع لوضع الشبكة لراوترات Huawei
+            if router.firmware == .huaweiB311 {
+                Divider().background(Color(white: 0.2))
+
+                HStack {
+                    HStack(spacing: 4) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 11))
+                            .foregroundColor(.blue)
+                        Text("وضع الشبكة:")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.gray)
+                        Text(router.networkMode == "03" ? "4G فقط" : router.networkMode == "02" ? "3G فقط" : "تلقائي")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(router.networkMode == "03" ? .blue : .primary)
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 6) {
+                        ForEach([("03", "4G فقط"), ("00", "تلقائي"), ("02", "3G فقط")], id: \.0) { item in
+                            let isSelected = router.networkMode == item.0
+                            Button(action: {
+                                onFastChangeNetMode?(item.0)
+                            }) {
+                                Text(item.1)
+                                    .font(.system(size: 10, weight: isSelected ? .bold : .medium))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(isSelected ? Color.blue : Color(white: 0.18))
+                                    .foregroundColor(isSelected ? .white : .gray)
+                                    .cornerRadius(6)
+                            }
+                        }
+                    }
+                }
             }
         }
         .padding(12)

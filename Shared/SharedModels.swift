@@ -102,6 +102,11 @@ struct RouterProfile: Identifiable, Codable, Hashable {
     var customPasswordSelector: String = ""
     var customLoginButtonSelector: String = ""
 
+    // إعدادات وضع شبكة الجوال والتحويل الذكي لراوترات Huawei
+    var networkMode: String = "00" // "00": تلقائي, "03": 4G فقط, "02": 3G فقط
+    var autoSwitchTo3GOnLowSpeed: Bool = false
+    var lowSpeedThresholdKbps: Double = 150.0
+
     enum CodingKeys: String, CodingKey {
         case id, name, routerIP, username, password, firmware
         case carrierName, liveDownloadRateKbps, liveUploadRateKbps
@@ -113,6 +118,7 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         case customUsageSelector, customUsageRegex, customUsageUnit
         case customDeviceTableSelector, customRebootButtonSelector
         case customUsernameSelector, customPasswordSelector, customLoginButtonSelector
+        case networkMode, autoSwitchTo3GOnLowSpeed, lowSpeedThresholdKbps
     }
 
     init(
@@ -150,7 +156,10 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         customRebootButtonSelector: String = "",
         customUsernameSelector: String = "",
         customPasswordSelector: String = "",
-        customLoginButtonSelector: String = ""
+        customLoginButtonSelector: String = "",
+        networkMode: String = "00",
+        autoSwitchTo3GOnLowSpeed: Bool = false,
+        lowSpeedThresholdKbps: Double = 150.0
     ) {
         self.id = id
         self.name = name
@@ -187,6 +196,9 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         self.customUsernameSelector = customUsernameSelector
         self.customPasswordSelector = customPasswordSelector
         self.customLoginButtonSelector = customLoginButtonSelector
+        self.networkMode = networkMode
+        self.autoSwitchTo3GOnLowSpeed = autoSwitchTo3GOnLowSpeed
+        self.lowSpeedThresholdKbps = lowSpeedThresholdKbps
     }
 
     init(from decoder: Decoder) throws {
@@ -226,6 +238,9 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         self.customUsernameSelector = try container.decodeIfPresent(String.self, forKey: .customUsernameSelector) ?? ""
         self.customPasswordSelector = try container.decodeIfPresent(String.self, forKey: .customPasswordSelector) ?? ""
         self.customLoginButtonSelector = try container.decodeIfPresent(String.self, forKey: .customLoginButtonSelector) ?? ""
+        self.networkMode = try container.decodeIfPresent(String.self, forKey: .networkMode) ?? "00"
+        self.autoSwitchTo3GOnLowSpeed = try container.decodeIfPresent(Bool.self, forKey: .autoSwitchTo3GOnLowSpeed) ?? false
+        self.lowSpeedThresholdKbps = try container.decodeIfPresent(Double.self, forKey: .lowSpeedThresholdKbps) ?? 150.0
     }
 
     // MARK: حسابات الباقة

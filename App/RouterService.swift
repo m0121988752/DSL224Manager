@@ -484,11 +484,13 @@ class RouterService: ObservableObject {
         // 1. جلب البيانات العامة المتاحة فوراً بدون كلمة سر
         await fetchHuaweiPublicStats(&r)
 
-        // 2. إذا توفرت كلمة المرور، نقوم بالمصافحة وتأكيد تسجيل الدخول لجلب الأجهزة وحالة الحظر
+        // 2. إذا توفرت كلمة المرور، نقوم بالمصافحة وتأكيد تسجيل الدخول لجلب الأجهزة وحالة الحظر وقراءة وضع الشبكة
         if !r.password.isEmpty {
             await authenticateHuawei(&r)
             await fetchHuaweiHosts(&r)
             await fetchHuaweiBlockList(&r)
+            await fetchHuaweiNetMode(&r)
+            await checkHuaweiAutoSwitchTo3G(&r)
         }
 
         self.activeRouter = r
@@ -1052,6 +1054,94 @@ class RouterService: ObservableObject {
 
         addLog("تم إرسال أمر إعادة تشغيل الراوتر (\(r.name))")
         sendAlert(title: "إعادة تشغيل (\(r.name))", body: "جاري إعادة تشغيل الراوتر... سيعود الاتصال خلال 90 ثانية.")
+    }
+
+    // MARK: - إدارة وضع شبكة الجوال لراوترات Huawei HiLink
+    func fetchHuaweiNetMode(_ r: inout RouterProfile) async {
+        guard let url = URL(string: "http://\(r.routerIP)/api/net/net-mode") else { return }
+        var req = URLRequest(url: url)
+        if let cookie = sessionCookies[r.id] {
+            req.setValue(cookie.contains("SessionID=") ? cookie : "SessionID=\(cookie)", forHTTPHeaderField: "Cookie")
+        }
+        if let (data, _) = try? await session.data(for: req),
+           let xml = String(data: data, encoding: .utf8),
+           let mode = extractXMLTag("NetworkMode", from: xml), !mode.isEmpty {
+            r.networkMode = mode
+        }
+    }
+
+    func setHuaweiNetMode(newMode: String) async -> Bool {
+        var r = activeRouter
+        guard r.firmware == .huaweiB311 else { return false }
+
+        guard let token = await getFreshHuaweiToken(routerIP: r.routerIP) else {
+            addLog("[خطأ] فشل جلب رمز الأمان لتغيير وضع الشبكة", isError: true)
+            return false
+        }
+
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <request>
+            <NetworkMode>\(newMode)</NetworkMode>
+            <NetworkBand>3FFFFFFF</NetworkBand>
+            <LTEBand>7FFFFFFFFFFFFFFF</LTEBand>
+        </request>
+        """
+
+        guard let url = URL(string: "http://\(r.routerIP)/api/net/net-mode") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        req.setValue(token, forHTTPHeaderField: "__RequestVerificationToken")
+        req.setValue("Broswer", forHTTPHeaderField: "_ResponseSource")
+        if let cookie = sessionCookies[r.id] {
+            req.setValue(cookie.contains("SessionID=") ? cookie : "SessionID=\(cookie)", forHTTPHeaderField: "Cookie")
+        }
+        req.httpBody = xml.data(using: .utf8)
+
+        var success = false
+        if let (data, res) = try? await session.data(for: req),
+           let xmlRes = String(data: data, encoding: .utf8) {
+            if let http = res as? HTTPURLResponse, let newTok = http.allHeaderFields["__RequestVerificationToken"] as? String {
+                verificationTokens[r.id] = newTok
+            }
+            success = xmlRes.contains("<response>OK</response>") || extractXMLTag("response", from: xmlRes) == "OK"
+        }
+
+        if !success {
+            await authenticateHuawei(&r)
+            if let freshToken = await getFreshHuaweiToken(routerIP: r.routerIP) {
+                var retryReq = req
+                retryReq.setValue(freshToken, forHTTPHeaderField: "__RequestVerificationToken")
+                if let cookie = sessionCookies[r.id] {
+                    retryReq.setValue(cookie.contains("SessionID=") ? cookie : "SessionID=\(cookie)", forHTTPHeaderField: "Cookie")
+                }
+                if let (data2, _) = try? await session.data(for: retryReq),
+                   let xmlRes2 = String(data: data2, encoding: .utf8) {
+                    success = xmlRes2.contains("<response>OK</response>") || extractXMLTag("response", from: xmlRes2) == "OK"
+                }
+            }
+        }
+
+        if success {
+            r.networkMode = newMode
+            activeRouter = r
+            let modeName = (newMode == "03") ? "4G فقط" : (newMode == "02") ? "3G فقط" : "تلقائي"
+            addLog("[نجاح] تم تغيير وتثبيت وضع الشبكة في الراوتر: \(modeName)")
+        } else {
+            addLog("[خطأ] تعذر تغيير وضع الشبكة في الراوتر", isError: true)
+        }
+        return success
+    }
+
+    private func checkHuaweiAutoSwitchTo3G(_ r: inout RouterProfile) async {
+        guard r.autoSwitchTo3GOnLowSpeed else { return }
+        guard r.networkMode == "03" || r.networkMode == "00" else { return }
+        if let downSpeed = r.liveDownloadRateKbps, downSpeed > 0.1, downSpeed < r.lowSpeedThresholdKbps {
+            addLog("[تنبيه ذكي] انخفاض سرعة التحميل إلى \(String(format: "%.1f", downSpeed)) KB/s (أقل من الحد \(Int(r.lowSpeedThresholdKbps)) KB/s)")
+            addLog("جاري التبديل التلقائي لراوتر Huawei إلى وضع 3G لتحسين جودة الاتصال...")
+            _ = await setHuaweiNetMode(newMode: "02")
+        }
     }
 
     // MARK: - أدوات مساعدة (Crypto + XML)

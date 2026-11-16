@@ -202,6 +202,9 @@ struct RouterEditorSheet: View {
     @State private var customUsernameSelector: String = ""
     @State private var customPasswordSelector: String = ""
     @State private var customLoginButtonSelector: String = ""
+    @State private var networkMode: String = "00"
+    @State private var autoSwitchTo3GOnLowSpeed: Bool = false
+    @State private var lowSpeedThresholdKbps: Double = 150.0
     @State private var showPresetsLibrarySheet: Bool = false
     @State private var presetMessage: String = ""
 
@@ -319,6 +322,29 @@ struct RouterEditorSheet: View {
                         .autocorrectionDisabled()
                 }
 
+                if firmware == .huaweiB311 {
+                    Section("شبكة الجوال والتحويل الذكي (HiLink 4G)") {
+                        Picker("وضع الشبكة", selection: $networkMode) {
+                            Text("4G فقط").tag("03")
+                            Text("تلقائي").tag("00")
+                            Text("3G فقط").tag("02")
+                        }
+                        .pickerStyle(.segmented)
+
+                        Toggle("التبديل التلقائي لـ 3G عند انخفاض السرعة", isOn: $autoSwitchTo3GOnLowSpeed)
+
+                        if autoSwitchTo3GOnLowSpeed {
+                            Picker("حد السرعة الأدنى للتحويل", selection: $lowSpeedThresholdKbps) {
+                                Text("50 ك.ب/ث").tag(50.0)
+                                Text("100 ك.ب/ث").tag(100.0)
+                                Text("150 ك.ب/ث").tag(150.0)
+                                Text("250 ك.ب/ث").tag(250.0)
+                                Text("500 ك.ب/ث").tag(500.0)
+                            }
+                        }
+                    }
+                }
+
                 Section("تخصيص الكشط المرئي بدون كود (No-Code Scraper)") {
                     TextField("محدد عداد الاستهلاك (CSS Selector)", text: $customUsageSelector)
                         .textInputAutocapitalization(.never)
@@ -368,6 +394,9 @@ struct RouterEditorSheet: View {
                             edit.customUsernameSelector = customUsernameSelector
                             edit.customPasswordSelector = customPasswordSelector
                             edit.customLoginButtonSelector = customLoginButtonSelector
+                            edit.networkMode = networkMode
+                            edit.autoSwitchTo3GOnLowSpeed = autoSwitchTo3GOnLowSpeed
+                            edit.lowSpeedThresholdKbps = lowSpeedThresholdKbps
                             service.updateRouter(edit)
                         } else {
                             var newProfile = RouterProfile(
@@ -386,7 +415,10 @@ struct RouterEditorSheet: View {
                                 customRebootButtonSelector: customRebootButtonSelector,
                                 customUsernameSelector: customUsernameSelector,
                                 customPasswordSelector: customPasswordSelector,
-                                customLoginButtonSelector: customLoginButtonSelector
+                                customLoginButtonSelector: customLoginButtonSelector,
+                                networkMode: networkMode,
+                                autoSwitchTo3GOnLowSpeed: autoSwitchTo3GOnLowSpeed,
+                                lowSpeedThresholdKbps: lowSpeedThresholdKbps
                             )
                             newProfile.devices = RouterService.sampleDevices()
                             service.addRouter(newProfile)
@@ -429,6 +461,9 @@ struct RouterEditorSheet: View {
                     customUsernameSelector = r.customUsernameSelector
                     customPasswordSelector = r.customPasswordSelector
                     customLoginButtonSelector = r.customLoginButtonSelector
+                    networkMode = r.networkMode
+                    autoSwitchTo3GOnLowSpeed = r.autoSwitchTo3GOnLowSpeed
+                    lowSpeedThresholdKbps = r.lowSpeedThresholdKbps
                 }
             }
         }
@@ -856,7 +891,44 @@ struct FullSettingsTabView: View {
                     }
                 }
 
-                // 7. التحديثات التلقائية ومستودع AltStore
+                // 7. شبكة الجوال والتحويل الذكي لراوترات Huawei
+                if service.activeRouter.firmware == .huaweiB311 {
+                    Section("شبكة الجوال والتحويل الذكي (HiLink 4G)") {
+                        Picker("وضع الشبكة", selection: Binding(
+                            get: { service.activeRouter.networkMode },
+                            set: { newMode in
+                                Task {
+                                    _ = await service.setHuaweiNetMode(newMode: newMode)
+                                }
+                            }
+                        )) {
+                            Text("4G فقط").tag("03")
+                            Text("تلقائي").tag("00")
+                            Text("3G فقط").tag("02")
+                        }
+                        .pickerStyle(.segmented)
+
+                        Toggle("التبديل التلقائي لـ 3G عند انخفاض السرعة", isOn: Binding(
+                            get: { service.activeRouter.autoSwitchTo3GOnLowSpeed },
+                            set: { var r = service.activeRouter; r.autoSwitchTo3GOnLowSpeed = $0; service.activeRouter = r }
+                        ))
+
+                        if service.activeRouter.autoSwitchTo3GOnLowSpeed {
+                            Picker("حد السرعة الأدنى للتحويل", selection: Binding(
+                                get: { Int(service.activeRouter.lowSpeedThresholdKbps) },
+                                set: { var r = service.activeRouter; r.lowSpeedThresholdKbps = Double($0); service.activeRouter = r }
+                            )) {
+                                Text("50 ك.ب/ث").tag(50)
+                                Text("100 ك.ب/ث").tag(100)
+                                Text("150 ك.ب/ث").tag(150)
+                                Text("250 ك.ب/ث").tag(250)
+                                Text("500 ك.ب/ث").tag(500)
+                            }
+                        }
+                    }
+                }
+
+                // 8. التحديثات التلقائية ومستودع AltStore
                 Section("التحديثات ومستودع AltStore") {
                     Link(destination: URL(string: "altstore://source?url=https://raw.githubusercontent.com/m0121988752/DSL224Manager/main/altstore-source.json")!) {
                         HStack {
