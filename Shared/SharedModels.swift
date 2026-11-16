@@ -289,9 +289,9 @@ struct RouterProfile: Identifiable, Codable, Hashable {
         guard let down = liveDownloadRateKbps else { return nil }
         let up = liveUploadRateKbps ?? 0
         if down >= 1024 {
-            return String(format: "⬇ %.1f MB/s • ⬆ %.0f KB/s", down / 1024.0, up)
+            return String(format: "DL: %.1f MB/s • UL: %.0f KB/s", down / 1024.0, up)
         } else {
-            return String(format: "⬇ %.0f KB/s • ⬆ %.0f KB/s", down, up)
+            return String(format: "DL: %.0f KB/s • UL: %.0f KB/s", down, up)
         }
     }
 
@@ -350,7 +350,7 @@ struct WidgetSnapshot: Codable {
         routerName: "راوتر المنزل",
         routerIP: "192.168.1.1",
         carrierName: "Orange EG",
-        liveSpeedFormatted: "⬇ 2.4 MB/s",
+        liveSpeedFormatted: "2.4 MB/s",
         usedGB: 64.5,
         remainingGB: 75.5,
         totalPlanGB: 140.0,
