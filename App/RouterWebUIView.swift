@@ -794,6 +794,12 @@ struct WebViewWrapper: UIViewRepresentable {
         }
     }
 
+    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        uiView.configuration.userContentController.removeScriptMessageHandler(forName: "elementPicker")
+        uiView.navigationDelegate = nil
+        uiView.stopLoading()
+    }
+
     class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: WebViewWrapper
 

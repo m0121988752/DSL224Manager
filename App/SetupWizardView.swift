@@ -675,7 +675,7 @@ struct SetupWizardView: View {
                             )
                             break
                         } else if lower.contains("vodafone") || lower.contains("h300s") {
-                            let matched = RouterPresetsManager.builtinPresets.first { $0.id == "vodafone_vdsl" }
+                            let matched = RouterPresetsManager.builtinPresets.first { $0.id == "vodafone_h300s" }
                             detected = DetectedRouterResult(
                                 ip: ip,
                                 modelName: "راوتر فودافون VDSL (H300s)",
@@ -685,7 +685,7 @@ struct SetupWizardView: View {
                             )
                             break
                         } else if lower.contains("tp-link") || lower.contains("archer") || lower.contains("vr600") {
-                            let matched = RouterPresetsManager.builtinPresets.first { $0.id == "tplink_vdsl" }
+                            let matched = RouterPresetsManager.builtinPresets.first { $0.id == "tplink_vr600" }
                             detected = DetectedRouterResult(
                                 ip: ip,
                                 modelName: "راوتر TP-Link Archer / VR600",
@@ -695,11 +695,11 @@ struct SetupWizardView: View {
                             )
                             break
                         } else if lower.contains("orange") || lower.contains("flybox") {
-                            let matched = RouterPresetsManager.builtinPresets.first { $0.id == "orange_flybox" }
+                            let matched = RouterPresetsManager.builtinPresets.first { $0.id == "orange_flybox_mf283" }
                             detected = DetectedRouterResult(
                                 ip: ip,
                                 modelName: "راوتر أورنج Flybox 4G",
-                                firmware: .huaweiB311,
+                                firmware: .genericRealtek,
                                 matchedPreset: matched,
                                 details: "تم رصد واجهة أورنج Flybox"
                             )

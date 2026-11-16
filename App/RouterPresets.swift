@@ -32,7 +32,7 @@ struct RouterPresetsManager {
             firmware: .me110Boa,
             description: "راوتر D-Link DSL-224 بنظام Boa الافتراضي (WE / فودافون / أورنج)",
             webUIPath: "",
-            customUsageSelector: "td:contains('WAN'), .traffic-stat, td:contains('Bytes')",
+            customUsageSelector: "#wan_bytes, .traffic-stat, td.bytes_val, table.status_table td",
             customUsageRegex: #"(\d{7,16})"#,
             customUsageUnit: "Bytes",
             customDeviceTableSelector: "#dhcp_client_table, tr.device-row, table.status_table",
@@ -130,11 +130,20 @@ struct RouterPresetsManager {
 
     // تصدير قالب راوتر إلى JSON آمن (تجريد كلمة المرور لحماية الخصوصية)
     static func exportTemplate(from profile: RouterProfile) -> String {
+        let fwKey: String
+        switch profile.firmware {
+        case .huaweiB311: fwKey = "HUAWEI_B311"
+        case .me110Boa: fwKey = "ME110_BOA"
+        case .revR1JsonRpc: fwKey = "REV_R1"
+        case .genericRealtek: fwKey = "GENERIC_REALTEK"
+        }
+
         let exportDict: [String: Any] = [
             "dsl224_template_version": 1,
             "name": profile.name,
             "defaultIP": profile.routerIP,
             "firmware": profile.firmware.rawValue,
+            "firmwareKey": fwKey,
             "webUIPath": profile.webUIPath,
             "customUsageSelector": profile.customUsageSelector,
             "customUsageRegex": profile.customUsageRegex,
@@ -165,10 +174,28 @@ struct RouterPresetsManager {
         }
         if let ip = dict["defaultIP"] as? String, !ip.isEmpty {
             profile.routerIP = ip
+        } else if let ip = dict["routerIP"] as? String, !ip.isEmpty {
+            profile.routerIP = ip
         }
-        if let fwStr = dict["firmware"] as? String,
-           let fw = FirmwareProtocol(rawValue: fwStr) {
-            profile.firmware = fw
+
+        // دعم مفتاح المنصتين المشترك firmwareKey ثم firmware
+        if let fwKey = dict["firmwareKey"] as? String {
+            switch fwKey {
+            case "HUAWEI_B311": profile.firmware = .huaweiB311
+            case "ME110_BOA": profile.firmware = .me110Boa
+            case "REV_R1": profile.firmware = .revR1JsonRpc
+            default: profile.firmware = .genericRealtek
+            }
+        } else if let fwStr = dict["firmware"] as? String {
+            if let direct = FirmwareProtocol(rawValue: fwStr) {
+                profile.firmware = direct
+            } else if fwStr.contains("B311") || fwStr.contains("Huawei") {
+                profile.firmware = .huaweiB311
+            } else if fwStr.contains("224") || fwStr.contains("Boa") {
+                profile.firmware = .me110Boa
+            } else {
+                profile.firmware = .genericRealtek
+            }
         }
         if let path = dict["webUIPath"] as? String {
             profile.webUIPath = path

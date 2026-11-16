@@ -481,8 +481,8 @@ struct ComprehensiveQuotaCard: View {
                         // السرعات اللحظية
                         HStack(spacing: 4) {
                             HStack(spacing: 2) {
-                                Text("↓")
-                                    .font(.system(size: 11, weight: .bold))
+                                Image(systemName: "arrow.down")
+                                    .font(.system(size: 10, weight: .bold))
                                     .foregroundColor(.blue)
                                 Text(router.downloadSpeedFormatted)
                                     .font(.system(size: 10, weight: .bold, design: .rounded))
@@ -494,8 +494,8 @@ struct ComprehensiveQuotaCard: View {
                             .cornerRadius(4)
 
                             HStack(spacing: 2) {
-                                Text("↑")
-                                    .font(.system(size: 11, weight: .bold))
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 10, weight: .bold))
                                     .foregroundColor(.green)
                                 Text(router.uploadSpeedFormatted)
                                     .font(.system(size: 10, weight: .bold, design: .rounded))

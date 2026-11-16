@@ -273,7 +273,7 @@ class WebUIFallbackService: NSObject, ObservableObject, WKNavigationDelegate {
                 'input[value*="دخول" i]',
                 'input[value*="تسجيل" i]',
                 'input[value="OK"]',
-                'button:contains("OK")',
+                'button[value="OK"]',
                 'button.login',
                 'a.login-btn'
             ];

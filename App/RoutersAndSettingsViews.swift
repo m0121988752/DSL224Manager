@@ -420,7 +420,7 @@ struct RouterEditorSheet: View {
                                 autoSwitchTo3GOnLowSpeed: autoSwitchTo3GOnLowSpeed,
                                 lowSpeedThresholdKbps: lowSpeedThresholdKbps
                             )
-                            newProfile.devices = RouterService.sampleDevices()
+                            newProfile.devices = []
                             service.addRouter(newProfile)
                         }
                         dismiss()

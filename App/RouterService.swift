@@ -133,7 +133,7 @@ class RouterService: ObservableObject {
                 totalPlanGB: 140.0,
                 renewalDay: 1
             )
-            dlink.devices = Self.sampleDevices()
+            dlink.devices = []
 
             let huawei = RouterProfile(
                 name: "راوتر 4G (Huawei B311)",
@@ -371,12 +371,12 @@ class RouterService: ObservableObject {
     }
 
     func applyWebUIScrapeResult(_ result: WebUIScrapeResult) {
-        var r = activeRouter
-
         if let bytes = result.wanBytes, bytes > 0 {
             processWANBytes(bytes)
             addLog("تم تحديث عداد الاستهلاك عبر كشط صفحة الويب: \(String(format: "%.2f", Double(bytes)/(1024*1024*1024))) GB")
         }
+
+        var r = activeRouter
 
         if let carrier = result.carrierName, !carrier.isEmpty {
             r.carrierName = carrier
@@ -478,6 +478,19 @@ class RouterService: ObservableObject {
         return verificationTokens[activeRouterID]
     }
 
+    private func isHuaweiSessionValid(routerIP: String) async -> Bool {
+        guard let cookie = sessionCookies[activeRouterID] else { return false }
+        guard let url = URL(string: "http://\(routerIP)/api/user/state-login") else { return false }
+        var req = URLRequest(url: url)
+        req.setValue(cookie.contains("SessionID=") ? cookie : "SessionID=\(cookie)", forHTTPHeaderField: "Cookie")
+        if let (data, _) = try? await session.data(for: req),
+           let xml = String(data: data, encoding: .utf8),
+           extractXMLTag("State", from: xml) == "0" {
+            return true
+        }
+        return false
+    }
+
     // MARK: - منطق راوترات Huawei (B311-221 HiLink API)
     private func loginAndRefreshHuawei(router: RouterProfile) async -> Bool {
         var r = router
@@ -576,7 +589,7 @@ class RouterService: ObservableObject {
             let chalBody = """
             <?xml version="1.0" encoding="UTF-8"?>
             <request>
-                <username>\(r.username)</username>
+                <username>\(escapeXML(r.username))</username>
                 <firstnonce>\(firstNonce)</firstnonce>
                 <mode>1</mode>
             </request>
@@ -680,7 +693,30 @@ class RouterService: ObservableObject {
 
         let parsed = parseHuaweiHostList(xml, existingRouter: r)
         if !parsed.isEmpty {
-            r.devices = parsed
+            var currentMap: [String: NetworkDevice] = [:]
+            for dev in r.devices {
+                var d = dev
+                d.isOnline = false
+                currentMap[d.macAddress.replacingOccurrences(of: "-", with: ":").uppercased()] = d
+            }
+            for dev in parsed {
+                let cleanMac = dev.macAddress.replacingOccurrences(of: "-", with: ":").uppercased()
+                if var existing = currentMap[cleanMac] {
+                    existing.ipAddress = dev.ipAddress
+                    existing.isOnline = true
+                    existing.lastSeen = Date()
+                    if !dev.originalHostname.isEmpty && (existing.originalHostname.isEmpty || existing.originalHostname.hasPrefix("جهاز")) {
+                        existing.originalHostname = dev.originalHostname
+                    }
+                    if let cName = r.customDeviceNames[cleanMac] {
+                        existing.customName = cName
+                    }
+                    currentMap[cleanMac] = existing
+                } else {
+                    currentMap[cleanMac] = dev
+                }
+            }
+            r.devices = Array(currentMap.values)
             addLog("تم جلب \(parsed.count) جهاز متصل براوتر Huawei")
         }
     }
@@ -700,10 +736,32 @@ class RouterService: ObservableObject {
         }
 
         // تحديث حالة الأجهزة الموجودة أو إضافة الأجهزة المحظورة التي ليست في قائمة المتصلين حالياً
-        for idx in 0..<r.devices.count {
-            let dMac = r.devices[idx].macAddress.replacingOccurrences(of: "-", with: ":").uppercased()
-            r.devices[idx].isBlocked = blockedMacs.contains(dMac)
+        var currentMap: [String: NetworkDevice] = [:]
+        for dev in r.devices {
+            var d = dev
+            let cleanMac = d.macAddress.replacingOccurrences(of: "-", with: ":").uppercased()
+            d.isBlocked = blockedMacs.contains(cleanMac)
+            currentMap[cleanMac] = d
         }
+        for mac in blockedMacs {
+            if currentMap[mac] == nil {
+                let offDev = NetworkDevice(
+                    ipAddress: "192.168.1.0",
+                    macAddress: mac,
+                    originalHostname: "جهاز محظور",
+                    customName: r.customDeviceNames[mac],
+                    isOnline: false,
+                    isBlocked: true,
+                    isThrottled: false,
+                    currentSpeedKbps: 0,
+                    isTrusted: false,
+                    firstSeen: Date(),
+                    lastSeen: Date()
+                )
+                currentMap[mac] = offDev
+            }
+        }
+        r.devices = Array(currentMap.values)
 
         if !blockedMacs.isEmpty {
             addLog("تمت مزامنة قائمة الحظر: \(blockedMacs.count) جهاز محظور")
@@ -757,7 +815,9 @@ class RouterService: ObservableObject {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        req.httpBody = "username=\(r.username)&password=\(r.password)".data(using: .utf8)
+        let userEncoded = r.username.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? r.username
+        let passEncoded = r.password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? r.password
+        req.httpBody = "username=\(userEncoded)&password=\(passEncoded)".data(using: .utf8)
 
         do {
             let (_, res) = try await session.data(for: req)
@@ -793,8 +853,102 @@ class RouterService: ObservableObject {
                 break
             }
         }
+
+        // قراءة قائمة الأجهزة المتصلة لراوتر D-Link
+        let clientPages = ["dhcpclients.html", "status_dhcp.html", "lan.html", "wlan_clients.html"]
+        for page in clientPages {
+            guard let url = URL(string: "http://\(r.routerIP)/\(page)") else { continue }
+            var req = URLRequest(url: url)
+            if let cookie = sessionCookies[r.id] { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
+            if let (data, _) = try? await session.data(for: req),
+               let html = String(data: data, encoding: .utf8) {
+                let foundDevs = parseDLinkClients(from: html)
+                if !foundDevs.isEmpty {
+                    var current = activeRouter
+                    var currentMap: [String: NetworkDevice] = [:]
+                    for dev in current.devices {
+                        currentMap[dev.macAddress.replacingOccurrences(of: "-", with: ":").uppercased()] = dev
+                    }
+                    for dev in foundDevs {
+                        let cleanMac = dev.macAddress.replacingOccurrences(of: "-", with: ":").uppercased()
+                        if var existing = currentMap[cleanMac] {
+                            existing.ipAddress = dev.ipAddress
+                            existing.isOnline = true
+                            existing.lastSeen = Date()
+                            if !dev.originalHostname.isEmpty && (existing.originalHostname.isEmpty || existing.originalHostname.hasPrefix("جهاز")) {
+                                existing.originalHostname = dev.originalHostname
+                            }
+                            if let cName = current.customDeviceNames[cleanMac] {
+                                existing.customName = cName
+                            }
+                            currentMap[cleanMac] = existing
+                        } else {
+                            currentMap[cleanMac] = dev
+                        }
+                    }
+                    current.devices = Array(currentMap.values)
+                    activeRouter = current
+                    break
+                }
+            }
+        }
+
         syncWidgetSnapshot()
         scheduleBackgroundRefresh()
+    }
+
+    private func parseDLinkClients(from html: String) -> [NetworkDevice] {
+        var list: [NetworkDevice] = []
+        var seen = Set<String>()
+        let macRegexPattern = "([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})"
+        let ipRegexPattern = "\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b"
+        let trRegexPattern = "<tr[^>]*>([\\s\\S]*?)</tr>"
+
+        guard let macRegex = try? NSRegularExpression(pattern: macRegexPattern),
+              let ipRegex = try? NSRegularExpression(pattern: ipRegexPattern),
+              let trRegex = try? NSRegularExpression(pattern: trRegexPattern, options: .caseInsensitive) else {
+            return []
+        }
+
+        let fullRange = NSRange(html.startIndex..., in: html)
+        let matches = trRegex.matches(in: html, range: fullRange)
+
+        for match in matches {
+            guard let rowRange = Range(match.range(at: 1), in: html) else { continue }
+            let row = String(html[rowRange])
+            let rowNSRange = NSRange(row.startIndex..., in: row)
+
+            if let macMatch = macRegex.firstMatch(in: row, range: rowNSRange),
+               let macR = Range(macMatch.range, in: row) {
+                let cleanMac = String(row[macR]).replacingOccurrences(of: "-", with: ":").uppercased()
+                if !seen.contains(cleanMac) && cleanMac != "00:00:00:00:00:00" && cleanMac != "FF:FF:FF:FF:FF:FF" {
+                    seen.insert(cleanMac)
+                    var ip = "192.168.1.50"
+                    if let ipMatch = ipRegex.firstMatch(in: row, range: rowNSRange),
+                       let ipR = Range(ipMatch.range, in: row) {
+                        ip = String(row[ipR])
+                    }
+                    let cleanText = row.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+                    let parts = cleanText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty && $0 != cleanMac && $0 != ip }
+                    let hostname = parts.first(where: { $0.count >= 2 && $0.count <= 30 && !$0.contains(":") }) ?? ""
+                    let newDev = NetworkDevice(
+                        ipAddress: ip,
+                        macAddress: cleanMac,
+                        originalHostname: hostname,
+                        customName: nil,
+                        isOnline: true,
+                        isBlocked: false,
+                        isThrottled: false,
+                        currentSpeedKbps: 0,
+                        isTrusted: false,
+                        firstSeen: Date(),
+                        lastSeen: Date()
+                    )
+                    list.append(newDev)
+                }
+            }
+        }
+        return list
     }
 
     private func extractWANBytes(from html: String) -> UInt64? {
@@ -872,7 +1026,8 @@ class RouterService: ObservableObject {
                 req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
                 if let cookie = sessionCookies[r.id] { req.setValue(cookie, forHTTPHeaderField: "Cookie") }
                 let action = newBlockState ? "add" : "delete"
-                req.httpBody = "action=\(action)&mac=\(device.macAddress)&filter_mode=deny".data(using: .utf8)
+                let encodedMac = device.macAddress.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? device.macAddress
+                req.httpBody = "action=\(action)&mac=\(encodedMac)&filter_mode=deny".data(using: .utf8)
                 let _ = try? await session.data(for: req)
             }
         }
@@ -886,7 +1041,13 @@ class RouterService: ObservableObject {
 
     // التنفيذ الفعلي لحظر أجهزة Huawei عبر multi-macfilter-settings المعتمد
     private func toggleBlockHuawei(device: NetworkDevice, newBlockState: Bool) async {
-        let r = activeRouter
+        var r = activeRouter
+
+        // فحص صلاحية الجلسة وتجديدها إذا لزم الأمر
+        let isValid = await isHuaweiSessionValid(routerIP: r.routerIP)
+        if !isValid || sessionCookies[r.id] == nil {
+            await authenticateHuawei(&r)
+        }
 
         // 1. جلب Token و SessionID طازجة
         guard let freshToken = await getFreshHuaweiToken(routerIP: r.routerIP) else {
@@ -907,7 +1068,7 @@ class RouterService: ObservableObject {
         var macEntriesXML = ""
         for (i, dev) in blockedList.prefix(10).enumerated() {
             let cleanMAC = dev.macAddress.replacingOccurrences(of: "-", with: ":").uppercased()
-            let cleanName = dev.displayName.replacingOccurrences(of: " ", with: "_")
+            let cleanName = escapeXML(dev.displayName.replacingOccurrences(of: " ", with: "_"))
             macEntriesXML += """
                     <WifiMacFilterMac\(i)>\(cleanMAC)</WifiMacFilterMac\(i)>
                     <wifihostname\(i)>\(cleanName)</wifihostname\(i)>
@@ -934,6 +1095,7 @@ class RouterService: ObservableObject {
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
             req.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+            req.setValue("Broswer", forHTTPHeaderField: "_ResponseSource")
             if let c = cookie {
                 req.setValue(c.contains("SessionID=") ? c : "SessionID=\(c)", forHTTPHeaderField: "Cookie")
             }
@@ -961,16 +1123,18 @@ class RouterService: ObservableObject {
             var req2 = URLRequest(url: url2)
             req2.httpMethod = "POST"
             req2.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+            req2.setValue("Broswer", forHTTPHeaderField: "_ResponseSource")
             if let c = cookie {
                 req2.setValue(c.contains("SessionID=") ? c : "SessionID=\(c)", forHTTPHeaderField: "Cookie")
             }
             req2.setValue(token2, forHTTPHeaderField: "__RequestVerificationToken")
 
             let cleanMAC = device.macAddress.replacingOccurrences(of: "-", with: ":").uppercased()
+            let cleanName = escapeXML(device.displayName)
             let singleXml = """
             <?xml version="1.0" encoding="UTF-8"?>
             <request>
-                <wifihostname>\(device.displayName)</wifihostname>
+                <wifihostname>\(cleanName)</wifihostname>
                 <WifiMacFilterMac>\(cleanMAC)</WifiMacFilterMac>
             </request>
             """
@@ -1211,6 +1375,14 @@ class RouterService: ObservableObject {
         return nil
     }
 
+    private func escapeXML(_ str: String) -> String {
+        str.replacingOccurrences(of: "&", with: "&amp;")
+           .replacingOccurrences(of: "<", with: "&lt;")
+           .replacingOccurrences(of: ">", with: "&gt;")
+           .replacingOccurrences(of: "\"", with: "&quot;")
+           .replacingOccurrences(of: "'", with: "&apos;")
+    }
+
     func exportBackupJSON() -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -1236,34 +1408,7 @@ class RouterService: ObservableObject {
     }
 
     static func sampleDevices() -> [NetworkDevice] {
-        [
-            NetworkDevice(
-                ipAddress: "192.168.1.10",
-                macAddress: "D4:6A:A8:12:34:56",
-                originalHostname: "iPhone",
-                customName: "هاتف أحمد",
-                isOnline: true,
-                isBlocked: false,
-                isThrottled: false,
-                currentSpeedKbps: 0,
-                isTrusted: true,
-                firstSeen: Date().addingTimeInterval(-86400 * 10),
-                lastSeen: Date()
-            ),
-            NetworkDevice(
-                ipAddress: "192.168.1.15",
-                macAddress: "E8:9F:80:AB:CD:EF",
-                originalHostname: "SmartTV",
-                customName: "شاشة الصالة",
-                isOnline: true,
-                isBlocked: false,
-                isThrottled: true,
-                currentSpeedKbps: 1024,
-                isTrusted: true,
-                firstSeen: Date().addingTimeInterval(-86400 * 20),
-                lastSeen: Date()
-            )
-        ]
+        []
     }
 }
 

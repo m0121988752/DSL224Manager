@@ -22,6 +22,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.DSL224Manager
+        CODE_SIGN_ENTITLEMENTS: App/DSL224Manager.entitlements
     dependencies:
       - target: DSL224WidgetExtension
         embed: true
@@ -39,3 +40,4 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.DSL224Manager.Widget
+        CODE_SIGN_ENTITLEMENTS: Widget/DSL224Widget.entitlements
